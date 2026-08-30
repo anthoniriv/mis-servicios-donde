@@ -1,0 +1,17 @@
+{
+  "name": "@mis-servicios/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "astro build",
+    "dev": "astro dev",
+    "preview": "vite preview --host 127.0.0.1 --port 4321",
+    "typecheck": "astro check",
+    "test:unit": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@astrojs/check": "^0.9.10",
+    "astro": "^7.2.9"
+  }
+}
