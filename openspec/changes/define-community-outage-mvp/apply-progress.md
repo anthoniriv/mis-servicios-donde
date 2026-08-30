@@ -13,6 +13,8 @@
 - [x] 1.3 Configure and prove Vitest, Supertest, Playwright, and a real PostgreSQL fixture.
 - [x] 1.4 Add Docker, environment, and CI configuration and run the forecast commands.
 - [x] 1.5 Record verified commands and enable Strict TDD for subsequent work units.
+- [x] 2.1 Add RED contract and trust-control tests.
+- [x] 2.2 Add coordinate-free Prisma schema, PostgreSQL migration, and trust services.
 
 ## Scaffold Test Cycle Evidence
 
@@ -38,9 +40,25 @@
 - Astro 7.2.9 was retained because Astro 5 has current high-severity audit findings. A root `cookie@2.0.1` dependency ensures Astro's externalized prerender import resolves the ESM API while Express keeps its nested 0.7.x dependency.
 - Local integration and E2E commands require permission to bind/connect to loopback ports in the managed sandbox; CI does not have that sandbox restriction.
 
+## Work Unit 2 TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | Triangulate | Refactor |
+|---|---|---|---|---|---|---|---|
+| 2.1 | `packages/contracts/src/index.spec.ts`, `apps/api/src/trust/trust.service.spec.ts` | Unit | Contracts 1/1 | Tests failed: missing exports/module | 6 tests passed | Distinct services/statuses, token versions, unsafe name/rate limit/redaction | Passed after safe unused-input cleanup |
+| 2.2 | `apps/api/src/trust/trust.service.spec.ts`, `apps/api/test/app.integration-spec.ts` | Unit + PostgreSQL integration | Existing integration baseline passed after PostgreSQL fixture start | Task 2.1 tests were authored before all Unit 2 production code | 4 unit + 2 integration tests passed | Fresh schema and coordinate-free column assertions | Deterministic schema reset passes |
+
+## Work Unit 2 Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused tests | `npm run check` exited 0: 5 Vitest files and 7 tests passed. |
+| Runtime harness | `docker compose up -d --wait postgres` reported healthy; `npm run test:integration` exited 0: 1 file, 2 tests passed against PostgreSQL 17. |
+| Build | `npm run build` exited 0 for API, web, and contracts. |
+| Rollback boundary | Revert schema/migration, trust services/tests, contract allowlists, and migration integration assertion; no intake, consensus, public map, or alerts behavior is removed. |
+
 ## Remaining Work Units
 
-- [ ] Unit 2: Data and privacy.
+- [x] Unit 2: Data and privacy.
 - [ ] Unit 3: Intake.
 - [ ] Unit 4: Consensus.
 - [ ] Unit 5: Map and web.

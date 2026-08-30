@@ -34,8 +34,8 @@ Chain strategy: stacked-to-main
 
 ## Phase 2: Data and Privacy
 
-- [ ] 2.1 RED: test contracts/allowlists, HMAC-versioned post-H3 hashes, sanitization, rate limits, silent ineligibility, and redaction.
-- [ ] 2.2 GREEN: create schemas, coordinate-free `apps/api/prisma/schema.prisma`, migration, and `apps/api/src/trust/` services.
+- [x] 2.1 RED: test contracts/allowlists, HMAC-versioned post-H3 hashes, sanitization, rate limits, silent ineligibility, and redaction.
+- [x] 2.2 GREEN: create schemas, coordinate-free `apps/api/prisma/schema.prisma`, migration, and `apps/api/src/trust/` services.
 
 ## Phase 3: Intake and Consensus
 

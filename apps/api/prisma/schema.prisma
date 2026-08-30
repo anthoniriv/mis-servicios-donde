@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Service { water electricity internet }
+enum ReportStatus { outage restored }
+enum TrustDecision { eligible excluded }
+
+model PilotZone {
+  id        String   @id @default(uuid()) @db.Uuid
+  slug      String   @unique
+  name      String
+  approved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  episodes  OutageEpisode[]
+}
+
+model SubmissionRecord {
+  id              String   @id @default(uuid()) @db.Uuid
+  deviceToken     String
+  submissionId    String
+  requestHash     String
+  trustDecision   TrustDecision
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime
+  events          ReportEvent[]
+  @@unique([deviceToken, submissionId])
+  @@index([deviceToken, createdAt])
+  @@index([expiresAt])
+}
+
+model ReportEvent {
+  id           String       @id @default(uuid()) @db.Uuid
+  submissionId String       @db.Uuid
+  h3Cell       String
+  service      Service
+  status       ReportStatus
+  deviceToken  String
+  createdAt    DateTime     @default(now())
+  expiresAt    DateTime
+  submission   SubmissionRecord @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  displayName  ReportDisplayName?
+  @@index([h3Cell, service, status, createdAt])
+  @@index([expiresAt])
+}
+
+model ReportDisplayName {
+  reportEventId String   @id @db.Uuid
+  value         String
+  expiresAt     DateTime
+  reportEvent   ReportEvent @relation(fields: [reportEventId], references: [id], onDelete: Cascade)
+  @@index([expiresAt])
+}
+
+model AbuseRecord {
+  id          String   @id @default(uuid()) @db.Uuid
+  deviceToken String
+  decision    TrustDecision
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+  @@index([deviceToken, createdAt])
+  @@index([expiresAt])
+}
+
+model OutageEpisode {
+  id        String   @id @default(uuid()) @db.Uuid
+  zoneId    String   @db.Uuid
+  h3Cell    String
+  service   Service
+  active    Boolean  @default(true)
+  expiresAt DateTime
+  zone      PilotZone @relation(fields: [zoneId], references: [id])
+  @@index([h3Cell, service, active, expiresAt])
+}

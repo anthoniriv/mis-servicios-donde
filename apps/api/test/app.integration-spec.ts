@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import pg from 'pg';
@@ -15,6 +17,9 @@ describe('executable API foundation', () => {
 
   beforeAll(async () => {
     database = new pg.Pool({ connectionString: databaseUrl });
+    await database.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public');
+    const migration = await readFile(new URL('../prisma/migrations/20260830190000_data_privacy/migration.sql', import.meta.url), 'utf8');
+    await database.query(migration);
     await database.query('CREATE TABLE IF NOT EXISTS fixture_probe (id integer PRIMARY KEY)');
     await database.query('TRUNCATE fixture_probe');
 
@@ -35,9 +40,11 @@ describe('executable API foundation', () => {
     expect(response.text).toBe('{"status":"ok"}');
   });
 
-  it('uses a real PostgreSQL fixture', async () => {
-    await database.query('INSERT INTO fixture_probe (id) VALUES (1)');
-    const result = await database.query<{ count: string }>('SELECT COUNT(*) AS count FROM fixture_probe');
-    expect(result.rows[0]?.count).toBe('1');
+  it('applies the coordinate-free privacy migration to PostgreSQL', async () => {
+    const result = await database.query<{ column_name: string }>(
+      "SELECT column_name FROM information_schema.columns WHERE table_name = 'ReportEvent'",
+    );
+    expect(result.rows.map((row) => row.column_name)).toContain('h3Cell');
+    expect(result.rows.map((row) => row.column_name)).not.toContain('latitude');
   });
 });
