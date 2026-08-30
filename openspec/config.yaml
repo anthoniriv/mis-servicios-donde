@@ -1,0 +1,71 @@
+schema: spec-driven
+
+context: |
+  Project stage: planning-only workspace; no application source or dependency manifests exist yet.
+  Intended frontend: Astro static site with interactive map and report-form islands.
+  Intended backend: NestJS API with Prisma and Neon PostgreSQL.
+  Intended geospatial/UI stack: H3 (h3-js) and deck.gl H3HexagonLayer.
+  Intended architecture: report ingestion, anti-abuse, consensus aggregation, and outbound alerts.
+  Source brief: alertas-cortes-lima.md (Spanish); generated technical artifacts default to English.
+  Repository status: Git has not been initialized.
+
+strict_tdd: false
+
+testing:
+  detected: "2026-08-30"
+  status: unavailable
+  reason: No application scaffold, test runner, CI configuration, or quality-tool configuration exists yet.
+  runner:
+    framework: null
+    command: ""
+  layers:
+    unit:
+      available: false
+      tool: null
+    integration:
+      available: false
+      tool: null
+    e2e:
+      available: false
+      tool: null
+  coverage:
+    available: false
+    command: ""
+  quality:
+    linter:
+      available: false
+      command: ""
+    type_checker:
+      available: false
+      command: ""
+    formatter:
+      available: false
+      command: ""
+
+rules:
+  proposal:
+    - State the user problem, MVP boundaries, rollout assumptions, and rollback strategy for risky changes.
+    - Distinguish validated requirements from unresolved product or architecture decisions.
+  specs:
+    - Use RFC 2119 keywords for normative requirements.
+    - Express acceptance scenarios in Given/When/Then form.
+    - Specify privacy, abuse prevention, temporal windows, idempotency, and concurrency behavior explicitly.
+  design:
+    - Include Mermaid context, container, data-flow, and sequence diagrams when they clarify system behavior.
+    - Record architecture decisions with rationale and rejected alternatives.
+    - Treat raw latitude/longitude as ephemeral sensitive input that must never be persisted or logged.
+  tasks:
+    - Group work by delivery phase and use hierarchical numbering.
+    - Keep each task independently verifiable and completable in one focused session.
+  apply:
+    guidelines:
+      - Follow the approved specs and design; do not invent unresolved product behavior during implementation.
+      - Add test tooling and update this configuration before application implementation begins.
+    tdd: false
+    test_command: ""
+  verify:
+    test_command: ""
+    build_command: ""
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive or privacy-impacting deltas into the main specifications.
