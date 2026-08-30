@@ -26,11 +26,11 @@ Chain strategy: stacked-to-main
 
 ## Phase 1: Executable Foundation
 
-- [ ] 1.1 Initialize Git with `main` when `.git` is absent; verify `git branch --show-current`.
-- [ ] 1.2 Scaffold npm workspaces: `apps/api`, `apps/web`, `packages/contracts`, TypeScript, lint, and builds.
-- [ ] 1.3 Configure Vitest, Supertest, Playwright, and PostgreSQL fixtures; prove RED then GREEN.
-- [ ] 1.4 Add `docker-compose.yml`, `.env.example`, and `.github/workflows/ci.yml`; verify forecast commands and `npm run build`.
-- [ ] 1.5 Record proven commands in `openspec/config.yaml`; enable TDD afterward.
+- [x] 1.1 Initialize Git with `main` when `.git` is absent; verify `git branch --show-current`.
+- [x] 1.2 Scaffold npm workspaces: `apps/api`, `apps/web`, `packages/contracts`, TypeScript, lint, and builds.
+- [x] 1.3 Configure Vitest, Supertest, Playwright, and PostgreSQL fixtures; prove RED then GREEN.
+- [x] 1.4 Add `docker-compose.yml`, `.env.example`, and `.github/workflows/ci.yml`; verify forecast commands and `npm run build`.
+- [x] 1.5 Record proven commands in `openspec/config.yaml`; enable TDD afterward.
 
 ## Phase 2: Data and Privacy
 
