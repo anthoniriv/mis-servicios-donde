@@ -238,3 +238,28 @@
 - [x] Unit 5: Map and web.
 - [x] Unit 6: Alerts and notices.
 - [ ] Unit 7: Retention and rollout (5.1–5.2 complete; 5.3 pending).
+
+
+## Work Unit 7c (Operations Documentation) Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | Triangulate | Refactor |
+|---|---|---|---|---|---|---|---|
+| 5.3 | `README.md` | Documentation + CI evidence | 16 PostgreSQL integration tests and 4 Playwright tests passed before documentation changes | N/A — documentation-only task; no runtime behavior changed | README review and all CI-equivalent checks passed | Setup, gates, workers, secrets, privacy, purge, rollout, and four independent rollback boundaries are all represented in executable sections | Removed assumed deployment behavior: README states that migrations and a production API proxy are not automated by this repository |
+
+## Work Unit 7c Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused documentation check and exact result | `git diff --check` exited 0; the root `README.md` contains the verified local setup, environment/gate table, worker and purge procedures, rollout/rollback checklist, and release commands. |
+| Runtime harness command/scenario and exact result | `npm run test:integration` exited 0: PostgreSQL 17, 3 files and 16 tests. `npm run test:e2e` exited 0: 4 Playwright browser tests. |
+| CI/build/container/audit evidence | `npm run check` exited 0: lint, workspace type checks, 9 unit files, and 18 tests. `npm run build` exited 0 for API, web, and contracts. `docker compose config --quiet` exited 0. `npm audit --omit=dev` exited 0 with 0 vulnerabilities. |
+| Rollback boundary | Revert this work unit to remove `README.md`, task completion, and this progress entry. It changes no runtime behavior, schema, secrets, workers, or data. |
+
+## Remaining Work Units
+
+- [x] Unit 2: Data and privacy.
+- [x] Unit 3: Intake.
+- [x] Unit 4: Consensus.
+- [x] Unit 5: Map and web.
+- [x] Unit 6: Alerts and notices.
+- [x] Unit 7: Retention and rollout (5.1–5.3 complete).
