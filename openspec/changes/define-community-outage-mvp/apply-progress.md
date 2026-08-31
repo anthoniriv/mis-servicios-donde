@@ -78,7 +78,7 @@
 | Evidence | Result |
 |---|---|
 | Focused test command and exact result | `npm run test:unit --workspace @mis-servicios/api -- alerts` exited 0: 1 file, 2 tests. `npm run test:unit --workspace @mis-servicios/api -- notices` exited 0: 1 file, 2 tests. |
-| Runtime harness command/scenario and exact result | `npm run test:integration` exited 0: PostgreSQL 17/NestJS/Supertest, 1 file and 12 tests. It proved concurrent opening creates one intent, a Telegram configuration failure marks it retryable while the episode remains active, disabled dispatch cancels it, and notices refuse missing/unapproved zones. |
+| Runtime harness command/scenario and exact result | `npm run test:integration` exited 0: PostgreSQL 17/NestJS/Supertest, 1 file and 12 tests. It proved concurrent opening creates one intent; concurrent dispatches claim one lease and make one provider attempt; a Telegram configuration failure marks it retryable while the episode remains active; disabled dispatch cancels it; notices refuse missing/unapproved zones. |
 | E2E/build/quality | `npm run check` exited 0: 8 total unit files and 16 tests; `npm run test:e2e` exited 0: 2 Playwright static-web tests; `npm run build` exited 0. The static browser harness has no live API process, so the PostgreSQL harness is the authoritative runtime proof for this API-only slice. |
 | Rollback boundary | Revert `cb61ec7` to remove the AlertIntent schema/migration, alerts service, consensus queue call, and alert tests; revert `91b3e53` to remove notices service/controller and notice tests. Neither revert removes report acceptance, episode consensus, or public cells. |
 

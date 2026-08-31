@@ -262,8 +262,8 @@ describe('outage consensus', () => {
     expect(intents.rows[0]?.content).not.toMatch(/device|latitude|longitude|alert-a/i);
 
     process.env.ALERT_DISPATCH_ENABLED = 'true';
-    await alerts.dispatchPending();
-    expect((await database.query<{ status: string }>('SELECT intent."status" FROM "AlertIntent" intent JOIN "OutageEpisode" episode ON episode."id" = intent."episodeId" WHERE episode."service" = \'internet\'')).rows[0]).toEqual({ status: 'retryable' });
+    await Promise.all([alerts.dispatchPending(), alerts.dispatchPending()]);
+    expect((await database.query<{ status: string; attempts: number }>('SELECT intent."status", intent."attempts" FROM "AlertIntent" intent JOIN "OutageEpisode" episode ON episode."id" = intent."episodeId" WHERE episode."service" = \'internet\'')).rows[0]).toEqual({ status: 'retryable', attempts: 1 });
     expect((await database.query<{ active: boolean }>('SELECT "active" FROM "OutageEpisode" WHERE "service" = \'internet\'')).rows[0]).toEqual({ active: true });
 
     delete process.env.ALERT_DISPATCH_ENABLED;
