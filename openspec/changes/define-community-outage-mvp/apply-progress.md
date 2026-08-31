@@ -188,3 +188,28 @@
 - [ ] Unit 5: Map and web.
 - [x] Unit 6: Alerts and notices.
 - [ ] Unit 7: Retention and rollout.
+
+
+## Work Unit 7a (Retention) TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | Triangulate | Refactor |
+|---|---|---|---|---|---|---|---|
+| 5.1 | `apps/api/src/retention/retention-policy.spec.ts`, `apps/api/test/retention.integration-spec.ts` | Unit + PostgreSQL integration | 12 integration tests and 2 E2E tests passed before the retention tests were added | `npm run test:unit --workspace @mis-servicios/api -- retention` exited 1 because `retention-policy.js` did not exist; the integration test was authored before `RetentionService` existed | Focused unit test exited 0: 1 file, 2 tests; PostgreSQL integration exited 0: 2 files, 14 tests | Exact 24h/7d/30d expiry records are removed while fresh display name/event/idempotency/abuse records remain; rollback deletes private pilot data but preserves zone configuration | Typed deletion allowlists and an unreferenced hourly worker timer kept the transaction boundary small; all checks stayed green |
+
+## Work Unit 7a Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `npm run test:unit --workspace @mis-servicios/api -- retention` exited 0: 1 file, 2 tests. |
+| Runtime harness command/scenario and exact result | `npm run test:integration --workspace @mis-servicios/api` exited 0: PostgreSQL 17, 2 files and 14 tests. The retention scenario proves deletion at the exact 24-hour, 7-day, and 30-day boundaries; fresh records remain; an explicit purge removes report, display-name, idempotency, abuse, episode, and cascaded alert rows while retaining the approved-zone configuration. |
+| Quality/build evidence | `npm run check` exited 0: lint, all workspace type checks, 9 unit files, and 18 tests passed. `npm run build` exited 0 for API, web, and contracts. |
+| Rollback boundary | Revert this work unit to remove `apps/api/src/retention/`, worker wiring, retention environment flag, purge command, and retention tests. The rollback purge is intentionally irreversible; it deletes pilot records and active episode/outbox data but preserves zone configuration. |
+
+## Remaining Work Units
+
+- [x] Unit 2: Data and privacy.
+- [x] Unit 3: Intake.
+- [x] Unit 4: Consensus.
+- [x] Unit 5: Map and web.
+- [x] Unit 6: Alerts and notices.
+- [ ] Unit 7: Retention and rollout (5.1 complete; 5.2–5.3 pending).

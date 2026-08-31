@@ -9,7 +9,8 @@
     "start:dev": "nest start --watch",
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run --config vitest.config.ts",
-    "test:integration": "vitest run --config vitest.integration.config.ts"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "retention:purge": "node dist/retention/purge.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.3",

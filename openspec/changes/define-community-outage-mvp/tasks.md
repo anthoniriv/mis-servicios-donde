@@ -54,6 +54,6 @@ Chain strategy: stacked-to-main
 
 ## Phase 5: Retention and Release Evidence
 
-- [ ] 5.1 RED→GREEN: test then implement 24-hour name erasure, 7-day event deletion, 30-day abuse/idempotency deletion, and irreversible rollback purge.
+- [x] 5.1 RED→GREEN: test then implement 24-hour name erasure, 7-day event deletion, 30-day abuse/idempotency deletion, and irreversible rollback purge.
 - [ ] 5.2 Add E2E report-to-map/outbox, retry, concurrency, disabled-feature, and public-privacy flows.
 - [ ] 5.3 Document setup, gates, secrets, workers, rollout, and rollback in `README.md`; run every CI check.
