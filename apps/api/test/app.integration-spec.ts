@@ -133,6 +133,20 @@ describe('executable API foundation', () => {
     expect((await database.query('SELECT * FROM "ReportEvent"')).rowCount).toBe(3);
   });
 
+  it('serves only a safe printable notice for an approved pilot zone', async () => {
+    await request(app.getHttpServer()).get('/v1/zones/central/notice').expect(200).expect({
+      title: 'Central community outage notice',
+      zone: 'Central',
+      instructions: 'Report water, electricity, or internet outages on the community map.',
+      mapUrl: '/',
+      notice: 'Community-generated, unofficial outage information.',
+    });
+    await request(app.getHttpServer()).get('/v1/zones/missing/notice').expect(404);
+    await database.query('UPDATE "PilotZone" SET "approved" = false WHERE "slug" = \'central\'');
+    await request(app.getHttpServer()).get('/v1/zones/central/notice').expect(404);
+    await database.query('UPDATE "PilotZone" SET "approved" = true WHERE "slug" = \'central\'');
+  });
+
 });
 
 describe('outage consensus', () => {
