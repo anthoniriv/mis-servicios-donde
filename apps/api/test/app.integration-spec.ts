@@ -22,6 +22,7 @@ describe('executable API foundation', () => {
   let alerts: AlertsService;
 
   beforeAll(async () => {
+    process.env.INTAKE_ENABLED = 'true';
     database = new pg.Pool({ connectionString: databaseUrl });
     await database.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public');
     const migrationsDirectory = new URL('../prisma/migrations/', import.meta.url);

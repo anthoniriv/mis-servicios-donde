@@ -213,3 +213,28 @@
 - [x] Unit 5: Map and web.
 - [x] Unit 6: Alerts and notices.
 - [ ] Unit 7: Retention and rollout (5.1 complete; 5.2–5.3 pending).
+
+
+## Work Unit 7b (Release E2E) TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | Triangulate | Refactor |
+|---|---|---|---|---|---|---|---|
+| 5.2 | `apps/api/test/release.integration-spec.ts`, `e2e/release-flow.spec.ts` | PostgreSQL integration + Playwright E2E | 14 PostgreSQL integration tests and 2 Playwright tests passed before this slice | `npm run test:integration --workspace @mis-servicios/api -- release` exited 1: disabled intake returned 201 instead of 400 | Same focused command exited 0: 1 file, 2 tests after the intake gate was added | Three concurrent reports create one safe map cell and one retryable outbox intent; disabling intake/public-map/dispatch blocks acceptance, suppresses cells, and cancels pending delivery; browser tests verify report-to-map privacy rendering and disabled UX | Typed Playwright `Page` helper removed an unsafe structural test type; lint, focused tests, and full checks remained green |
+
+## Work Unit 7b Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `npm run test:integration --workspace @mis-servicios/api -- release` exited 0: 1 file, 2 tests. `npm run test:e2e -- --grep "submits a report|keeps the browser"` exited 0: 2 Playwright tests. |
+| Runtime harness command/scenario and exact result | `npm run test:integration` exited 0: PostgreSQL 17, 3 files and 16 tests. It proves concurrent reports produce one public aggregate and one retryable intent, concurrent dispatch makes one provider attempt, all rollout gates act independently, and neither public cells nor alert text exposes reporter data. |
+| E2E/build/quality evidence | `npm run test:e2e` exited 0: 4 Playwright tests; `npm run check` exited 0: lint, workspace type checks, 9 unit files, and 18 tests; `npm run build` exited 0 for API, web, and contracts. |
+| Rollback boundary | Revert this work unit to remove the intake gate, release integration/browser E2E tests, and this progress entry. Existing report intake, public cells, and outbox flows remain independently reversible through their prior work units. |
+
+## Remaining Work Units
+
+- [x] Unit 2: Data and privacy.
+- [x] Unit 3: Intake.
+- [x] Unit 4: Consensus.
+- [x] Unit 5: Map and web.
+- [x] Unit 6: Alerts and notices.
+- [ ] Unit 7: Retention and rollout (5.1–5.2 complete; 5.3 pending).

@@ -19,6 +19,7 @@ export class ReportsService implements OnModuleDestroy {
   async onModuleDestroy(): Promise<void> { await this.pool.end(); }
 
   async accept(value: unknown): Promise<{ submissionId: string; accepted: true }> {
+    if (process.env.INTAKE_ENABLED !== 'true') throw unavailable();
     const input = validateReportInput(value);
     const zone = await this.findPilotZone(input.latitude, input.longitude);
     if (!zone || !Number.isInteger(this.h3Resolution) || this.h3Resolution < 0 || this.h3Resolution > 15) throw unavailable();
