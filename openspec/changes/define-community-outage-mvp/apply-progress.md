@@ -263,3 +263,35 @@
 - [x] Unit 5: Map and web.
 - [x] Unit 6: Alerts and notices.
 - [x] Unit 7: Retention and rollout (5.1–5.3 complete).
+
+## Focused Remediation: Verification Blockers
+
+**Failed evidence remediated**: `sha256:077e2e5bbd655f52c97d931a45be4902aba577ae4d20ad65f43a37c1036bf3a0`
+
+### TDD Cycle Evidence
+
+| Work unit | Test file | Layer | Safety net | RED | GREEN | Triangulate | Refactor |
+|---|---|---|---|---|---|---|---|
+| Remediate verification blockers | `apps/api/test/release.integration-spec.ts`, `e2e/release-flow.spec.ts` | PostgreSQL integration + Playwright E2E | Existing release integration: 2/2; release E2E: 2/2 | Focused suite exit 1: missing H3 resolution still published an active cell | Focused suite exit 0: 5 integration tests and 2 E2E tests passed | Retry success; refresh/closure suppression; below-quorum/confirmed/restored map lifecycle; name/eligibility/privacy; incomplete configuration | Removed implicit H3 defaults; explicit fixture configuration keeps non-remediation tests deterministic |
+
+### Scenario Coverage Mapping
+
+- Retry succeeds; refresh, restoration, and expiry alert suppression: `release.integration-spec.ts > retries the same alert successfully and never creates alerts for refresh or closure`.
+- Below-threshold suppression and restored map closure: `release.integration-spec.ts > suppresses reports below quorum and removes restored conditions from the public map`.
+- Incomplete pilot configuration and explicit H3 gate: `release.integration-spec.ts > keeps public operation disabled without a configured resolution or approved pilot set`.
+- Unsafe-name acceptance, privacy-safe error/storage behavior, rate-limit eligibility/public-state isolation: the next two remediation integration tests.
+- Active-map unofficial notice: `e2e/release-flow.spec.ts > submits a report and renders only the public aggregate after confirmation`.
+
+### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `npm run test:integration --workspace @mis-servicios/api -- --testNamePattern='remediation verification coverage'` exited 0: 1 file, 5 tests passed. `npx playwright test e2e/release-flow.spec.ts` exited 0: 2 tests passed. |
+| Runtime harness command/scenario and exact result | `npm run test:integration && npm run test:e2e` exited 0: PostgreSQL 17/NestJS/Supertest 3 files, 21 tests; Playwright 4 tests. |
+| Quality and build | `npm run check`, `npm run build`, and `git diff --check` exited 0; 18 unit tests passed. |
+| Rollback boundary | Revert the H3 guards, remediation test coverage, explicit test fixture configuration, and this evidence; no migration or unrelated behavior is removed. |
+
+### Remediation Envelopes
+
+{"schema":"gentle-ai.remediation-result/v1","change":"define-community-outage-mvp","lineage_id":"sha256:dbad73bda814301e03d237c20ec60f2b8c34f9f4f8480364163f82f0afa20d20","generation":11,"fix_batch":1,"failed_evidence_revision":"sha256:077e2e5bbd655f52c97d931a45be4902aba577ae4d20ad65f43a37c1036bf3a0","attempt_token":"sha256:3942609e16b270d593edb4d84658d9763db450f689fdb0912052c11d513a1ecf","status":"passed","evidence_revision":"sha256:70c300776aa0d3d86487682229ca7d99bf1998d7f66774c4462fef68c6eb8434","branch":"remediation-community-outage-verification"}
+{"schema":"gentle-ai.remediation-evidence/v1","change":"define-community-outage-mvp","lineage_id":"sha256:dbad73bda814301e03d237c20ec60f2b8c34f9f4f8480364163f82f0afa20d20","generation":11,"fix_batch":1,"failed_evidence_revision":"sha256:077e2e5bbd655f52c97d931a45be4902aba577ae4d20ad65f43a37c1036bf3a0","attempt_token":"sha256:3942609e16b270d593edb4d84658d9763db450f689fdb0912052c11d513a1ecf","focused_test":{"command":"npm run test:integration --workspace @mis-servicios/api -- --testNamePattern='remediation verification coverage'","result":"exit 0; 5 passed"},"runtime_harness":{"command":"npm run test:integration && npm run test:e2e","result":"exit 0; 21 PostgreSQL/NestJS/Supertest integration tests and 4 Playwright tests passed"},"quality":{"command":"npm run check && npm run build && git diff --check","result":"exit 0; 18 unit tests, lint, type checks, build, and diff check passed"},"rollback_boundary":"Revert the strict H3 configuration guard and its integration/E2E evidence in the named API and E2E files; no schema or unrelated behavior is removed."}

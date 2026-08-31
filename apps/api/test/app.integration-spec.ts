@@ -23,6 +23,7 @@ describe('executable API foundation', () => {
 
   beforeAll(async () => {
     process.env.INTAKE_ENABLED = 'true';
+    process.env.H3_RESOLUTION = '9';
     database = new pg.Pool({ connectionString: databaseUrl });
     await database.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public');
     const migrationsDirectory = new URL('../prisma/migrations/', import.meta.url);
@@ -41,6 +42,7 @@ describe('executable API foundation', () => {
   });
 
   afterAll(async () => {
+    delete process.env.H3_RESOLUTION;
     await app?.close();
     await database?.end();
   });

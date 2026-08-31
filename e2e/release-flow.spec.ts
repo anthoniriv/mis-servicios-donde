@@ -30,6 +30,7 @@ test('submits a report and renders only the public aggregate after confirmation'
   await page.getByLabel('Show service').selectOption('water');
   await expect(page.getByRole('status')).toContainText('1 confirmed condition available.');
   await expect(page.getByLabel('Confirmed outage cells')).toContainText('water condition in a nearby area');
+  await expect(page.getByRole('note')).toContainText('Community-generated information is unofficial and not provider-confirmed.');
   await expect(page.locator('body')).not.toContainText('8999999999fffff');
   await expect(page.locator('body')).not.toContainText('never-public');
 });

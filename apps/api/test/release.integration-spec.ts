@@ -9,6 +9,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AlertsService } from '../src/alerts/alerts.service.js';
+import { ConsensusService } from '../src/consensus/consensus.service.js';
 import { AppModule } from '../src/app.module.js';
 
 const databaseUrl = process.env.DATABASE_URL ??
@@ -23,6 +24,7 @@ describe('release outage flow', () => {
     process.env.INTAKE_ENABLED = 'true';
     process.env.PUBLIC_MAP_ENABLED = 'true';
     process.env.ALERT_DISPATCH_ENABLED = 'true';
+    process.env.H3_RESOLUTION = '9';
     database = new pg.Pool({ connectionString: databaseUrl });
     await database.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public');
     const migrationsDirectory = new URL('../prisma/migrations/', import.meta.url);
@@ -42,6 +44,7 @@ describe('release outage flow', () => {
     delete process.env.INTAKE_ENABLED;
     delete process.env.PUBLIC_MAP_ENABLED;
     delete process.env.ALERT_DISPATCH_ENABLED;
+    delete process.env.H3_RESOLUTION;
     await app?.close();
     await database?.end();
   });
@@ -82,5 +85,122 @@ describe('release outage flow', () => {
     delete process.env.ALERT_DISPATCH_ENABLED;
     await alerts.dispatchPending();
     await expect(database.query('SELECT "status" FROM "AlertIntent"')).resolves.toMatchObject({ rows: [{ status: 'cancelled' }] });
+  });
+});
+
+describe('remediation verification coverage', () => {
+  let app: INestApplication;
+  let database: pg.Pool;
+  let alerts: AlertsService;
+  let consensus: ConsensusService;
+  const report = { services: ['water'], status: 'outage', latitude: -12.0464, longitude: -77.0428 };
+
+  beforeAll(async () => {
+    process.env.INTAKE_ENABLED = 'true';
+    process.env.PUBLIC_MAP_ENABLED = 'true';
+    process.env.ALERT_DISPATCH_ENABLED = 'true';
+    process.env.H3_RESOLUTION = '9';
+    database = new pg.Pool({ connectionString: databaseUrl });
+    await database.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public');
+    const migrationsDirectory = new URL('../prisma/migrations/', import.meta.url);
+    for (const entry of (await readdir(migrationsDirectory)).sort()) {
+      await database.query(await readFile(new URL(`../prisma/migrations/${entry}/migration.sql`, import.meta.url), 'utf8'));
+    }
+    await database.query(`INSERT INTO "PilotZone" ("slug", "name", "approved", "boundary") VALUES
+      ('central', 'Central', true, '{"minLatitude": -12.1, "maxLatitude": -12.0, "minLongitude": -77.1, "maxLongitude": -77.0}'),
+      ('north', 'North', true, '{"minLatitude": -12.1, "maxLatitude": -12.0, "minLongitude": -77.1, "maxLongitude": -77.0}')`);
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = moduleRef.createNestApplication();
+    await app.init();
+    alerts = app.get(AlertsService);
+    consensus = app.get(ConsensusService);
+  });
+
+  afterAll(async () => {
+    delete process.env.INTAKE_ENABLED;
+    delete process.env.PUBLIC_MAP_ENABLED;
+    delete process.env.ALERT_DISPATCH_ENABLED;
+    delete process.env.H3_RESOLUTION;
+    await app?.close();
+    await database?.end();
+  });
+
+  async function submit(deviceId: string, submissionId: string, changes: Record<string, unknown> = {}): Promise<void> {
+    await request(app.getHttpServer()).post('/v1/reports').send({ ...report, ...changes, deviceId, submissionId }).expect(201).expect({ submissionId, accepted: true });
+  }
+
+  it('keeps public operation disabled without a configured resolution or approved pilot set', async () => {
+    const zone = await database.query<{ id: string }>('SELECT "id" FROM "PilotZone" WHERE "slug" = $1', ['central']);
+    await database.query(`INSERT INTO "OutageEpisode" ("zoneId", "h3Cell", "service", "expiresAt") VALUES ($1, '898e62c0cdbffff', 'water', CURRENT_TIMESTAMP + INTERVAL '6 hours')`, [zone.rows[0]?.id]);
+    delete process.env.H3_RESOLUTION;
+    await request(app.getHttpServer()).get('/v1/cells?service=water').expect(200).expect([]);
+    process.env.H3_RESOLUTION = '9';
+    await database.query('UPDATE "PilotZone" SET "approved" = false WHERE "slug" = $1', ['north']);
+    await request(app.getHttpServer()).get('/v1/cells?service=water').expect(200).expect([]);
+    await database.query('UPDATE "PilotZone" SET "approved" = true WHERE "slug" = $1', ['north']);
+  });
+
+  it('accepts an unsafe optional name without retaining it and keeps raw request data out of errors', async () => {
+    await submit('name-device', 'unsafe-name', { name: '<>' });
+    expect((await database.query('SELECT * FROM "ReportDisplayName"')).rowCount).toBe(0);
+
+    const response = await request(app.getHttpServer()).post('/v1/reports').send({ ...report, deviceId: 'raw-device', submissionId: 'raw-submission', latitude: -13, longitude: -77 }).expect(400);
+    expect(response.body).toEqual({ code: 'report_unavailable', message: 'Unable to process report.' });
+    expect(JSON.stringify(response.body)).not.toMatch(/raw-device|-13|-77/);
+    const persisted = await database.query('SELECT * FROM "SubmissionRecord" UNION ALL SELECT * FROM "SubmissionRecord" WHERE false');
+    expect(JSON.stringify(persisted.rows)).not.toContain('raw-device');
+  });
+
+  it('silently excludes a fourth hourly submission without adding a public condition', async () => {
+    for (const suffix of ['one', 'two', 'three', 'four']) await submit('limited-device', `limited-${suffix}`, { services: ['electricity'] });
+    const submissions = await database.query<{ trustDecision: string }>('SELECT "trustDecision" FROM "SubmissionRecord" WHERE "submissionId" LIKE \'limited-%\' ORDER BY "createdAt", "submissionId"');
+    expect(submissions.rows.map((row) => row.trustDecision)).toEqual(['eligible', 'eligible', 'eligible', 'excluded']);
+    expect((await database.query('SELECT * FROM "ReportEvent" WHERE "service" = \'electricity\'')).rowCount).toBe(3);
+    await request(app.getHttpServer()).get('/v1/cells?service=electricity').expect(200).expect([]);
+  });
+
+  it('suppresses reports below quorum and removes restored conditions from the public map', async () => {
+    await Promise.all(['a', 'b'].map((suffix) => submit(`below-${suffix}`, `below-${suffix}`, { services: ['internet'] })));
+    await request(app.getHttpServer()).get('/v1/cells?service=internet').expect(200).expect([]);
+
+    await submit('below-c', 'below-c', { services: ['internet'] });
+    const confirmed = await request(app.getHttpServer()).get('/v1/cells?service=internet').expect(200);
+    expect(confirmed.body as unknown).toEqual([{ h3Cell: '898e62c0cdbffff', service: 'internet' }]);
+    await Promise.all(['a', 'b', 'c'].map((suffix) => submit(`restored-${suffix}`, `restored-${suffix}`, { services: ['internet'], status: 'restored' })));
+    await request(app.getHttpServer()).get('/v1/cells?service=internet').expect(200).expect([]);
+    expect((await database.query<{ active: boolean; closureReason: string }>('SELECT "active", "closureReason" FROM "OutageEpisode" WHERE "service" = \'internet\'' )).rows[0]).toEqual({ active: false, closureReason: 'restored' });
+  });
+
+  it('retries the same alert successfully and never creates alerts for refresh or closure', async () => {
+    await Promise.all(['a', 'b', 'c'].map((suffix) => submit(`retry-${suffix}`, `retry-${suffix}`)));
+    const intent = await database.query<{ id: string }>('SELECT "id" FROM "AlertIntent" WHERE "status" = \'pending\' ORDER BY "createdAt" DESC LIMIT 1');
+    await alerts.dispatchPending();
+    await database.query('UPDATE "AlertIntent" SET "nextAttemptAt" = CURRENT_TIMESTAMP WHERE "id" = $1', [intent.rows[0]?.id]);
+    const originalFetch = globalThis.fetch;
+    process.env.TELEGRAM_BOT_TOKEN = 'test-token';
+    process.env.TELEGRAM_CHAT_ID = 'test-chat';
+    globalThis.fetch = () => Promise.resolve(new Response('', { status: 200 }));
+    try {
+      await alerts.dispatchPending();
+    } finally {
+      globalThis.fetch = originalFetch;
+      delete process.env.TELEGRAM_BOT_TOKEN;
+      delete process.env.TELEGRAM_CHAT_ID;
+    }
+    expect((await database.query<{ id: string; status: string; attempts: number }>('SELECT "id", "status", "attempts" FROM "AlertIntent" WHERE "id" = $1', [intent.rows[0]?.id])).rows[0])
+      .toEqual({ id: intent.rows[0]?.id, status: 'delivered', attempts: 1 });
+
+    await Promise.all(['electric-open-a', 'electric-open-b', 'electric-open-c'].map((id) => submit(id, id, { services: ['electricity'] })));
+    expect((await database.query('SELECT * FROM "AlertIntent" WHERE "status" <> \'cancelled\'')).rowCount).toBe(2);
+    await database.query('ALTER TABLE "ReportEvent" DISABLE TRIGGER prevent_report_event_mutation');
+    await database.query('UPDATE "ReportEvent" SET "createdAt" = CURRENT_TIMESTAMP - INTERVAL \'61 minutes\' WHERE "service" = \'electricity\'');
+    await database.query('ALTER TABLE "ReportEvent" ENABLE TRIGGER prevent_report_event_mutation');
+    await Promise.all(['refresh-a', 'refresh-b', 'refresh-c'].map((id) => submit(id, id, { services: ['electricity'] })));
+    expect((await database.query('SELECT * FROM "AlertIntent" WHERE "status" <> \'cancelled\'')).rowCount).toBe(2);
+    await Promise.all(['close-a', 'close-b', 'close-c'].map((id) => submit(id, id, { services: ['electricity'], status: 'restored' })));
+    expect((await database.query('SELECT * FROM "AlertIntent" WHERE "status" <> \'cancelled\'')).rowCount).toBe(2);
+    await database.query('UPDATE "OutageEpisode" SET "expiresAt" = CURRENT_TIMESTAMP - INTERVAL \'1 second\' WHERE "service" = \'water\'');
+    await consensus.expireStaleEpisodes();
+    expect((await database.query('SELECT * FROM "AlertIntent" WHERE "status" <> \'cancelled\'')).rowCount).toBe(2);
   });
 });

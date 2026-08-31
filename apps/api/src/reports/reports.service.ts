@@ -11,7 +11,7 @@ interface SubmissionRow { id: string; "requestHash": string; "trustDecision": 'e
 @Injectable()
 export class ReportsService implements OnModuleDestroy {
   private readonly pool = new pg.Pool({ connectionString: process.env.DATABASE_URL ?? 'postgresql://mis_servicios:mis_servicios@127.0.0.1:54329/mis_servicios_test' });
-  private readonly h3Resolution = Number(process.env.H3_RESOLUTION ?? 9);
+  private readonly h3Resolution = configuredH3Resolution();
   private readonly deviceSecret = process.env.DEVICE_TOKEN_SECRET ?? 'development-only-secret';
 
   constructor(private readonly consensus: ConsensusService) {}
@@ -22,8 +22,9 @@ export class ReportsService implements OnModuleDestroy {
     if (process.env.INTAKE_ENABLED !== 'true') throw unavailable();
     const input = validateReportInput(value);
     const zone = await this.findPilotZone(input.latitude, input.longitude);
-    if (!zone || !Number.isInteger(this.h3Resolution) || this.h3Resolution < 0 || this.h3Resolution > 15) throw unavailable();
-    const h3Cell = latLngToCell(input.latitude, input.longitude, this.h3Resolution);
+    const resolution = this.h3Resolution;
+    if (!zone || resolution === undefined) throw unavailable();
+    const h3Cell = latLngToCell(input.latitude, input.longitude, resolution);
     const deviceToken = createVersionedDeviceToken(input.deviceId, this.deviceSecret, 'v1');
     const requestHash = canonicalSubmissionHash({ h3Cell, services: input.services, status: input.status });
     const safeInput = { submissionId: input.submissionId, services: input.services, status: input.status, name: input.name };
@@ -104,4 +105,11 @@ function isBoundary(value: unknown): value is { minLatitude: number; maxLatitude
   if (typeof value !== 'object' || value === null) return false;
   const boundary = value as Record<string, unknown>;
   return ['minLatitude', 'maxLatitude', 'minLongitude', 'maxLongitude'].every((key) => typeof boundary[key] === 'number');
+}
+
+function configuredH3Resolution(): number | undefined {
+  const rawResolution = process.env.H3_RESOLUTION?.trim();
+  if (!rawResolution) return undefined;
+  const resolution = Number(rawResolution);
+  return Number.isInteger(resolution) && resolution >= 0 && resolution <= 15 ? resolution : undefined;
 }

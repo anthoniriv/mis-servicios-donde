@@ -41,6 +41,8 @@ function isSupportedService(service: unknown): service is PublicCell['service'] 
 }
 
 function hasConfiguredH3Resolution(): boolean {
-  const resolution = Number(process.env.H3_RESOLUTION ?? 9);
+  const rawResolution = process.env.H3_RESOLUTION?.trim();
+  if (!rawResolution) return false;
+  const resolution = Number(rawResolution);
   return Number.isInteger(resolution) && resolution >= 0 && resolution <= 15;
 }
