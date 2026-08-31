@@ -11,6 +11,7 @@ enum Service { water electricity internet }
 enum ReportStatus { outage restored }
 enum TrustDecision { eligible excluded }
 enum EpisodeClosureReason { restored expired }
+enum AlertIntentStatus { pending delivered retryable cancelled }
 
 model PilotZone {
   id        String   @id @default(uuid()) @db.Uuid
@@ -82,5 +83,24 @@ model OutageEpisode {
   closedAt  DateTime?
   closureReason EpisodeClosureReason?
   zone      PilotZone @relation(fields: [zoneId], references: [id])
+  alerts    AlertIntent[]
   @@index([h3Cell, service, active, expiresAt])
+}
+
+model AlertIntent {
+  id              String            @id @default(uuid()) @db.Uuid
+  episodeId       String            @db.Uuid
+  kind            String
+  content         String
+  status          AlertIntentStatus @default(pending)
+  attempts        Int               @default(0)
+  nextAttemptAt   DateTime          @default(now())
+  leaseToken      String?           @db.Uuid
+  leaseExpiresAt  DateTime?
+  deliveredAt     DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime          @default(now())
+  episode         OutageEpisode     @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  @@unique([episodeId, kind])
+  @@index([status, nextAttemptAt])
 }

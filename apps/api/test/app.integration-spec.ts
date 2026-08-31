@@ -7,6 +7,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppModule } from '../src/app.module.js';
+import { AlertsService } from '../src/alerts/alerts.service.js';
 import { ConsensusService } from '../src/consensus/consensus.service.js';
 
 const databaseUrl = process.env.DATABASE_URL ??
@@ -18,6 +19,7 @@ describe('executable API foundation', () => {
   let app: INestApplication;
   let database: pg.Pool;
   let consensus: ConsensusService;
+  let alerts: AlertsService;
 
   beforeAll(async () => {
     database = new pg.Pool({ connectionString: databaseUrl });
@@ -34,6 +36,7 @@ describe('executable API foundation', () => {
     app = moduleRef.createNestApplication();
     await app.init();
     consensus = app.get(ConsensusService);
+    alerts = app.get(AlertsService);
   });
 
   afterAll(async () => {
@@ -230,6 +233,28 @@ describe('outage consensus', () => {
     await database.query('UPDATE "OutageEpisode" SET "expiresAt" = CURRENT_TIMESTAMP - INTERVAL \'1 second\' WHERE "h3Cell" = $1 AND "service" = \'water\'', [publicCells[0]?.h3Cell]);
     await request(app.getHttpServer()).get('/v1/cells?service=water').expect(200).expect([]);
     delete process.env.PUBLIC_MAP_ENABLED;
+  });
+
+  it('keeps one safe opening intent recoverable across concurrency, provider failure, and dispatch rollback', async () => {
+    await database.query('DROP TRIGGER fail_internet_event ON "ReportEvent"');
+    await Promise.all(['alert-a', 'alert-b', 'alert-c'].map((id) => submit(id, id, { services: ['internet'] })));
+
+    const intents = await database.query<{ count: string; content: string }>(
+      `SELECT count(*), min(intent."content") AS "content" FROM "AlertIntent" intent JOIN "OutageEpisode" episode ON episode."id" = intent."episodeId" WHERE intent."kind" = 'OPENED' AND episode."service" = 'internet'`,
+    );
+    expect(intents.rows[0]?.count).toBe('1');
+    expect(intents.rows[0]?.content).toContain('Internet outage');
+    expect(intents.rows[0]?.content).toContain('Community-generated, unofficial outage information.');
+    expect(intents.rows[0]?.content).not.toMatch(/device|latitude|longitude|alert-a/i);
+
+    process.env.ALERT_DISPATCH_ENABLED = 'true';
+    await alerts.dispatchPending();
+    expect((await database.query<{ status: string }>('SELECT intent."status" FROM "AlertIntent" intent JOIN "OutageEpisode" episode ON episode."id" = intent."episodeId" WHERE episode."service" = \'internet\'')).rows[0]).toEqual({ status: 'retryable' });
+    expect((await database.query<{ active: boolean }>('SELECT "active" FROM "OutageEpisode" WHERE "service" = \'internet\'')).rows[0]).toEqual({ active: true });
+
+    delete process.env.ALERT_DISPATCH_ENABLED;
+    await alerts.dispatchPending();
+    expect((await database.query<{ status: string }>('SELECT intent."status" FROM "AlertIntent" intent JOIN "OutageEpisode" episode ON episode."id" = intent."episodeId" WHERE episode."service" = \'internet\'')).rows[0]).toEqual({ status: 'cancelled' });
   });
 });
 

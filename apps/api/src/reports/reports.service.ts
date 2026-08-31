@@ -6,7 +6,7 @@ import { ConsensusService } from '../consensus/consensus.service.js';
 import { canonicalSubmissionHash, createVersionedDeviceToken, toPublicTrustOutcome } from '../trust/trust.service.js';
 import { conflict, type ReportInput, unavailable, validateReportInput } from './report-input.js';
 
-interface PilotZoneRow { id: string; boundary: unknown }
+interface PilotZoneRow { id: string; name: string; boundary: unknown }
 interface SubmissionRow { id: string; "requestHash": string; "trustDecision": 'eligible' | 'excluded' }
 @Injectable()
 export class ReportsService implements OnModuleDestroy {
@@ -26,16 +26,17 @@ export class ReportsService implements OnModuleDestroy {
     const deviceToken = createVersionedDeviceToken(input.deviceId, this.deviceSecret, 'v1');
     const requestHash = canonicalSubmissionHash({ h3Cell, services: input.services, status: input.status });
     const safeInput = { submissionId: input.submissionId, services: input.services, status: input.status, name: input.name };
-    return this.persist(zone.id, h3Cell, deviceToken, requestHash, safeInput);
+    return this.persist(zone.id, zone.name, h3Cell, deviceToken, requestHash, safeInput);
   }
 
   private async findPilotZone(latitude: number, longitude: number): Promise<PilotZoneRow | undefined> {
-    const zones = await this.pool.query<PilotZoneRow>('SELECT "id", "boundary" FROM "PilotZone" WHERE "approved" = true');
+    const zones = await this.pool.query<PilotZoneRow>('SELECT "id", "name", "boundary" FROM "PilotZone" WHERE "approved" = true');
     return zones.rows.find((zone) => contains(zone.boundary, latitude, longitude));
   }
 
   private async persist(
     zoneId: string,
+    zoneName: string,
     h3Cell: string,
     deviceToken: string,
     requestHash: string,
@@ -62,7 +63,7 @@ export class ReportsService implements OnModuleDestroy {
         'INSERT INTO "SubmissionRecord" ("deviceToken", "submissionId", "requestHash", "trustDecision", "expiresAt") VALUES ($1, $2, $3, $4::"TrustDecision", CURRENT_TIMESTAMP + INTERVAL \'30 days\') RETURNING "id"',
         [deviceToken, input.submissionId, requestHash, eligible ? 'eligible' : 'excluded'],
       );
-      if (eligible) await this.consensus.evaluate(client, zoneId, h3Cell, input.status, await this.insertEvents(client, submission.rows[0]?.id, h3Cell, deviceToken, input));
+      if (eligible) await this.consensus.evaluate(client, zoneId, zoneName, h3Cell, input.status, await this.insertEvents(client, submission.rows[0]?.id, h3Cell, deviceToken, input));
       await client.query('COMMIT');
       return { submissionId: input.submissionId, ...toPublicTrustOutcome({ eligible }) };
     } catch (error) {

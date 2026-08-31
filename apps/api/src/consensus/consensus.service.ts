@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import pg from 'pg';
 
+import { AlertsService } from '../alerts/alerts.service.js';
 import { episodeLifetimeHours, isQuorumThresholdCrossing, orderedLockKeys, quorumWindowMinutes, shouldRestoreEpisode } from './consensus-policy.js';
 
 type Service = 'water' | 'electricity' | 'internet';
@@ -13,13 +14,15 @@ interface Closure { closedAt: Date }
 export class ConsensusService implements OnModuleDestroy {
   private readonly pool = new pg.Pool({ connectionString: process.env.DATABASE_URL ?? 'postgresql://mis_servicios:mis_servicios@127.0.0.1:54329/mis_servicios_test' });
 
+  constructor(private readonly alerts: AlertsService) {}
+
   async onModuleDestroy(): Promise<void> { await this.pool.end(); }
 
-  async evaluate(client: pg.PoolClient, zoneId: string, h3Cell: string, status: Status, votes: Vote[]): Promise<void> {
+  async evaluate(client: pg.PoolClient, zoneId: string, zoneName: string, h3Cell: string, status: Status, votes: Vote[]): Promise<void> {
     for (const key of orderedLockKeys(votes.map((vote) => [h3Cell, vote.service]))) {
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [key]);
     }
-    for (const vote of votes) await this.evaluateVote(client, zoneId, h3Cell, status, vote);
+    for (const vote of votes) await this.evaluateVote(client, zoneId, zoneName, h3Cell, status, vote);
   }
 
   async listPublicEpisodes(): Promise<{ h3Cell: string; service: Service }[]> {
@@ -47,7 +50,7 @@ export class ConsensusService implements OnModuleDestroy {
     } finally { client.release(); }
   }
 
-  private async evaluateVote(client: pg.PoolClient, zoneId: string, h3Cell: string, status: Status, vote: Vote): Promise<void> {
+  private async evaluateVote(client: pg.PoolClient, zoneId: string, zoneName: string, h3Cell: string, status: Status, vote: Vote): Promise<void> {
     await client.query('UPDATE "OutageEpisode" SET "active" = false, "closedAt" = "expiresAt", "closureReason" = \'expired\'::"EpisodeClosureReason" WHERE "h3Cell" = $1 AND "service" = $2::"Service" AND "active" = true AND "expiresAt" <= CURRENT_TIMESTAMP', [h3Cell, vote.service]);
     const active = await client.query<Episode>(
       'SELECT "id", "openedAt", "active" FROM "OutageEpisode" WHERE "h3Cell" = $1 AND "service" = $2::"Service" AND "active" = true FOR UPDATE',
@@ -77,6 +80,7 @@ export class ConsensusService implements OnModuleDestroy {
     await client.query(`UPDATE "OutageEpisode" SET "expiresAt" = CURRENT_TIMESTAMP + INTERVAL '${episodeLifetimeHours} hours', "lastQuorumAt" = CURRENT_TIMESTAMP WHERE "id" = $1`, [episode.id]);
       return;
     }
-    await client.query(`INSERT INTO "OutageEpisode" ("zoneId", "h3Cell", "service", "expiresAt", "openedAt", "lastQuorumAt") VALUES ($1::uuid, $2, $3::"Service", CURRENT_TIMESTAMP + INTERVAL '${episodeLifetimeHours} hours', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, [zoneId, h3Cell, vote.service]);
+    const created = await client.query<{ id: string }>(`INSERT INTO "OutageEpisode" ("zoneId", "h3Cell", "service", "expiresAt", "openedAt", "lastQuorumAt") VALUES ($1::uuid, $2, $3::"Service", CURRENT_TIMESTAMP + INTERVAL '${episodeLifetimeHours} hours', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING "id"`, [zoneId, h3Cell, vote.service]);
+    if (created.rows[0]?.id) await this.alerts.queueOpening(client, created.rows[0].id, zoneName, vote.service);
   }
 }
