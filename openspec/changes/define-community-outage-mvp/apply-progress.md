@@ -89,3 +89,28 @@
 - [ ] Unit 5: Map and web.
 - [ ] Unit 6: Alerts and notices.
 - [ ] Unit 7: Retention and rollout.
+
+## Work Unit 4 TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | Triangulate | Refactor |
+|---|---|---|---|---|---|---|---|
+| 3.3 | `consensus-policy.spec.ts`, `app.integration-spec.ts` | Unit + PostgreSQL integration | 2 report unit + 6 integration tests passed | Missing policy/service modules; no active episodes | 3 consensus unit + 9 integration tests passed | Duplicate keys, threshold crossing, concurrent reports, service/status isolation, refresh, restoration, expiry, reopening | Extracted validated 60 min/3 device/6 h configuration defaults; tests stayed green |
+| 3.4 | `app.integration-spec.ts` | PostgreSQL integration | 9 integration tests passed | New post-restoration quorum assertion failed (one episode) | New episode opens after closure; 9 integration tests passed | Expired rows excluded before explicit cleanup | Final focused/unit, integration, check, and build passed |
+
+## Work Unit 4 Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused tests | `npm run test:unit --workspace @mis-servicios/api -- consensus` exited 0: 1 file, 3 tests. |
+| Runtime harness | `npm run test:integration` exited 0: PostgreSQL 17/NestJS/Supertest, 1 file and 9 tests including concurrent threshold reports. |
+| Quality/build | `npm run check` and `npm run build` exited 0. |
+| Rollback boundary | Revert consensus service/policy, episode-lifecycle migration/schema, report transaction wiring, consensus tests, and this progress entry; report intake and privacy remain. |
+
+## Remaining Work Units
+
+- [x] Unit 2: Data and privacy.
+- [x] Unit 3: Intake.
+- [x] Unit 4: Consensus.
+- [ ] Unit 5: Map and web.
+- [ ] Unit 6: Alerts and notices.
+- [ ] Unit 7: Retention and rollout.

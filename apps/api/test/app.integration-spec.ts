@@ -7,6 +7,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppModule } from '../src/app.module.js';
+import { ConsensusService } from '../src/consensus/consensus.service.js';
 
 const databaseUrl = process.env.DATABASE_URL ??
   'postgresql://mis_servicios:mis_servicios@127.0.0.1:54329/mis_servicios_test';
@@ -16,6 +17,7 @@ const databaseUrl = process.env.DATABASE_URL ??
 describe('executable API foundation', () => {
   let app: INestApplication;
   let database: pg.Pool;
+  let consensus: ConsensusService;
 
   beforeAll(async () => {
     database = new pg.Pool({ connectionString: databaseUrl });
@@ -31,6 +33,7 @@ describe('executable API foundation', () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
     await app.init();
+    consensus = app.get(ConsensusService);
   });
 
   afterAll(async () => {
@@ -125,6 +128,78 @@ describe('executable API foundation', () => {
 
     expect((await database.query('SELECT * FROM "SubmissionRecord" WHERE "submissionId" = $1', ['atomic-001'])).rowCount).toBe(0);
     expect((await database.query('SELECT * FROM "ReportEvent"')).rowCount).toBe(3);
+  });
+});
+
+describe('outage consensus', () => {
+  const report = {
+    services: ['water'],
+    status: 'outage',
+    latitude: -12.0464,
+    longitude: -77.0428,
+  };
+
+  async function submit(device: string, submission: string, changes: Partial<typeof report> = {}): Promise<void> {
+    await request(app.getHttpServer())
+      .post('/v1/reports')
+      .send({ ...report, ...changes, deviceId: device, submissionId: submission })
+      .expect(201);
+  }
+
+  it('serializes concurrent threshold reports into one active episode', async () => {
+    await submit('consensus-a', 'consensus-a');
+    await Promise.all([
+      submit('consensus-b', 'consensus-b'),
+      submit('consensus-c', 'consensus-c'),
+    ]);
+
+    const episodes = await database.query<{ count: string }>(
+      `SELECT count(*) FROM "OutageEpisode" WHERE "h3Cell" = (SELECT "h3Cell" FROM "ReportEvent" WHERE "submissionId" = (SELECT "id" FROM "SubmissionRecord" WHERE "submissionId" = 'consensus-a')) AND "service" = 'water' AND "active" = true`,
+    );
+    expect(episodes.rows[0]?.count).toBe('1');
+  });
+
+  it('keeps cell, service, and status quorums isolated', async () => {
+    await Promise.all([
+      submit('electric-a', 'electric-a', { services: ['electricity'] }),
+      submit('electric-b', 'electric-b', { services: ['electricity'] }),
+      submit('electric-c', 'electric-c', { services: ['electricity'] }),
+      submit('restored-a', 'restored-a', { status: 'restored' }),
+      submit('restored-b', 'restored-b', { status: 'restored' }),
+      submit('restored-c', 'restored-c', { status: 'restored' }),
+    ]);
+
+    const episodes = await database.query<{ service: string; active: boolean; closureReason: string | null }>(
+      `SELECT "service", "active", "closureReason" FROM "OutageEpisode" WHERE "h3Cell" = (SELECT "h3Cell" FROM "ReportEvent" WHERE "submissionId" = (SELECT "id" FROM "SubmissionRecord" WHERE "submissionId" = 'consensus-a')) ORDER BY "service"::text`,
+    );
+    expect(episodes.rows).toEqual([
+      { service: 'electricity', active: true, closureReason: null },
+      { service: 'water', active: false, closureReason: 'restored' },
+    ]);
+
+    await Promise.all(['reopened-a', 'reopened-b', 'reopened-c'].map((id) => submit(id, id)));
+    expect((await database.query<{ count: string }>('SELECT count(*) FROM "OutageEpisode" WHERE "service" = \'water\'', [])).rows[0]?.count).toBe('2');
+  });
+
+  it('refreshes only after a later quorum and closes stale episodes without publishing them', async () => {
+    const initial = await database.query<{ expiresAt: Date }>('SELECT "expiresAt" FROM "OutageEpisode" WHERE "service" = \'electricity\' AND "active" = true');
+    await submit('electric-lone', 'electric-lone', { services: ['electricity'] });
+    expect((await database.query<{ expiresAt: Date }>('SELECT "expiresAt" FROM "OutageEpisode" WHERE "service" = \'electricity\' AND "active" = true')).rows[0]?.expiresAt)
+      .toEqual(initial.rows[0]?.expiresAt);
+
+    await database.query('ALTER TABLE "ReportEvent" DISABLE TRIGGER prevent_report_event_mutation');
+    await database.query('UPDATE "ReportEvent" SET "createdAt" = CURRENT_TIMESTAMP - INTERVAL \'61 minutes\' WHERE "service" = \'electricity\' AND "status" = \'outage\'');
+    await database.query('ALTER TABLE "ReportEvent" ENABLE TRIGGER prevent_report_event_mutation');
+    await Promise.all(['refresh-a', 'refresh-b', 'refresh-c'].map((id) => submit(id, id, { services: ['electricity'] })));
+    const refreshed = await database.query<{ expiresAt: Date }>('SELECT "expiresAt" FROM "OutageEpisode" WHERE "service" = \'electricity\' AND "active" = true');
+    expect(refreshed.rows[0]?.expiresAt.getTime()).toBeGreaterThan(initial.rows[0]?.expiresAt.getTime() ?? 0);
+
+    const stale = await database.query<{ id: string; h3Cell: string }>('SELECT "id", "h3Cell" FROM "OutageEpisode" WHERE "service" = \'electricity\' AND "active" = true');
+    await database.query('UPDATE "OutageEpisode" SET "expiresAt" = CURRENT_TIMESTAMP - INTERVAL \'1 second\' WHERE "id" = $1', [stale.rows[0]?.id]);
+    expect(await consensus.listPublicEpisodes()).not.toContainEqual({ h3Cell: stale.rows[0]?.h3Cell, service: 'electricity' });
+    await consensus.expireStaleEpisodes();
+    expect((await database.query<{ active: boolean; closureReason: string }>('SELECT "active", "closureReason" FROM "OutageEpisode" WHERE "id" = $1', [stale.rows[0]?.id])).rows[0])
+      .toEqual({ active: false, closureReason: 'expired' });
   });
 });
 

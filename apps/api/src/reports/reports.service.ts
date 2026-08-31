@@ -2,18 +2,19 @@ import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { latLngToCell } from 'h3-js';
 import pg from 'pg';
 
+import { ConsensusService } from '../consensus/consensus.service.js';
 import { canonicalSubmissionHash, createVersionedDeviceToken, toPublicTrustOutcome } from '../trust/trust.service.js';
 import { conflict, type ReportInput, unavailable, validateReportInput } from './report-input.js';
 
 interface PilotZoneRow { id: string; boundary: unknown }
 interface SubmissionRow { id: string; "requestHash": string; "trustDecision": 'eligible' | 'excluded' }
-interface TransactionClient { query: pg.Pool['query']; release(): void }
-
 @Injectable()
 export class ReportsService implements OnModuleDestroy {
   private readonly pool = new pg.Pool({ connectionString: process.env.DATABASE_URL ?? 'postgresql://mis_servicios:mis_servicios@127.0.0.1:54329/mis_servicios_test' });
   private readonly h3Resolution = Number(process.env.H3_RESOLUTION ?? 9);
   private readonly deviceSecret = process.env.DEVICE_TOKEN_SECRET ?? 'development-only-secret';
+
+  constructor(private readonly consensus: ConsensusService) {}
 
   async onModuleDestroy(): Promise<void> { await this.pool.end(); }
 
@@ -61,7 +62,7 @@ export class ReportsService implements OnModuleDestroy {
         'INSERT INTO "SubmissionRecord" ("deviceToken", "submissionId", "requestHash", "trustDecision", "expiresAt") VALUES ($1, $2, $3, $4::"TrustDecision", CURRENT_TIMESTAMP + INTERVAL \'30 days\') RETURNING "id"',
         [deviceToken, input.submissionId, requestHash, eligible ? 'eligible' : 'excluded'],
       );
-      if (eligible) await this.insertEvents(client, submission.rows[0]?.id, h3Cell, deviceToken, input, zoneId);
+      if (eligible) await this.consensus.evaluate(client, zoneId, h3Cell, input.status, await this.insertEvents(client, submission.rows[0]?.id, h3Cell, deviceToken, input));
       await client.query('COMMIT');
       return { submissionId: input.submissionId, ...toPublicTrustOutcome({ eligible }) };
     } catch (error) {
@@ -71,18 +72,22 @@ export class ReportsService implements OnModuleDestroy {
     } finally { client.release(); }
   }
 
-  private async insertEvents(client: TransactionClient, submissionId: string | undefined, h3Cell: string, deviceToken: string, input: Omit<ReportInput, 'deviceId' | 'latitude' | 'longitude'>, zoneId: string): Promise<void> {
-    if (!submissionId || !zoneId) throw new ReportUnavailableError();
+  private async insertEvents(client: pg.PoolClient, submissionId: string | undefined, h3Cell: string, deviceToken: string, input: Omit<ReportInput, 'deviceId' | 'latitude' | 'longitude'>): Promise<{ service: 'water' | 'electricity' | 'internet'; eventId: string }[]> {
+    if (!submissionId) throw new ReportUnavailableError();
+    const votes: { service: 'water' | 'electricity' | 'internet'; eventId: string }[] = [];
     for (const service of input.services) {
       const event = await client.query<{ id: string }>(
         'INSERT INTO "ReportEvent" ("submissionId", "h3Cell", "service", "status", "deviceToken", "expiresAt") VALUES ($1::uuid, $2, $3::"Service", $4::"ReportStatus", $5, CURRENT_TIMESTAMP + INTERVAL \'7 days\') RETURNING "id"',
         [submissionId, h3Cell, service, input.status, deviceToken],
       );
+      if (!event.rows[0]?.id) throw new ReportUnavailableError();
+      votes.push({ service, eventId: event.rows[0].id });
       if (input.name && event.rows[0]?.id) await client.query(
         'INSERT INTO "ReportDisplayName" ("reportEventId", "value", "expiresAt") VALUES ($1::uuid, $2, CURRENT_TIMESTAMP + INTERVAL \'24 hours\')',
         [event.rows[0].id, input.name],
       );
     }
+    return votes;
   }
 }
 

@@ -10,6 +10,7 @@ datasource db {
 enum Service { water electricity internet }
 enum ReportStatus { outage restored }
 enum TrustDecision { eligible excluded }
+enum EpisodeClosureReason { restored expired }
 
 model PilotZone {
   id        String   @id @default(uuid()) @db.Uuid
@@ -76,6 +77,10 @@ model OutageEpisode {
   service   Service
   active    Boolean  @default(true)
   expiresAt DateTime
+  openedAt  DateTime @default(now())
+  lastQuorumAt DateTime @default(now())
+  closedAt  DateTime?
+  closureReason EpisodeClosureReason?
   zone      PilotZone @relation(fields: [zoneId], references: [id])
   @@index([h3Cell, service, active, expiresAt])
 }

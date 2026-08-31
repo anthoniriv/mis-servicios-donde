@@ -1,0 +1,7 @@
+CREATE TYPE "EpisodeClosureReason" AS ENUM ('restored', 'expired');
+
+ALTER TABLE "OutageEpisode"
+  ADD COLUMN "openedAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN "lastQuorumAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN "closedAt" TIMESTAMPTZ,
+  ADD COLUMN "closureReason" "EpisodeClosureReason";
