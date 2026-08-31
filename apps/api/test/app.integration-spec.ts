@@ -129,6 +129,7 @@ describe('executable API foundation', () => {
     expect((await database.query('SELECT * FROM "SubmissionRecord" WHERE "submissionId" = $1', ['atomic-001'])).rowCount).toBe(0);
     expect((await database.query('SELECT * FROM "ReportEvent"')).rowCount).toBe(3);
   });
+
 });
 
 describe('outage consensus', () => {
@@ -200,6 +201,35 @@ describe('outage consensus', () => {
     await consensus.expireStaleEpisodes();
     expect((await database.query<{ active: boolean; closureReason: string }>('SELECT "active", "closureReason" FROM "OutageEpisode" WHERE "id" = $1', [stale.rows[0]?.id])).rows[0])
       .toEqual({ active: false, closureReason: 'expired' });
+  });
+
+  it('publishes only active, approved, safe aggregates and suppresses disabled or expired cells', async () => {
+    await request(app.getHttpServer()).get('/v1/cells').expect(200).expect([]);
+
+    await database.query(
+      `INSERT INTO "PilotZone" ("slug", "name", "approved", "boundary") VALUES ('north', 'North', true, '{"minLatitude": -12.1, "maxLatitude": -12.0, "minLongitude": -77.1, "maxLongitude": -77.0}')`,
+    );
+    process.env.PUBLIC_MAP_ENABLED = 'true';
+    await Promise.all(['map-a', 'map-b', 'map-c'].map((id) => submit(id, id)));
+
+    const cells = await request(app.getHttpServer()).get('/v1/cells?service=water').expect(200);
+    const publicCells = (cells as unknown as { body: Array<{ h3Cell: string; service: string }> }).body;
+    expect(publicCells).toHaveLength(1);
+    expect(typeof publicCells[0]?.h3Cell).toBe('string');
+    expect(publicCells[0]?.service).toBe('water');
+    expect(JSON.stringify(publicCells)).not.toMatch(/device|name|created|timestamp|latitude|longitude/i);
+    await request(app.getHttpServer()).get('/v1/cells?service=internet').expect(200).expect([]);
+    await request(app.getHttpServer()).get('/v1/cells?service=unknown').expect(200).expect([]);
+
+    await database.query('UPDATE "PilotZone" SET "approved" = false WHERE "slug" = \'central\'');
+    await database.query(
+      `INSERT INTO "PilotZone" ("slug", "name", "approved", "boundary") VALUES ('south', 'South', true, '{"minLatitude": -12.1, "maxLatitude": -12.0, "minLongitude": -77.1, "maxLongitude": -77.0}')`,
+    );
+    await request(app.getHttpServer()).get('/v1/cells?service=water').expect(200).expect([]);
+
+    await database.query('UPDATE "OutageEpisode" SET "expiresAt" = CURRENT_TIMESTAMP - INTERVAL \'1 second\' WHERE "h3Cell" = $1 AND "service" = \'water\'', [publicCells[0]?.h3Cell]);
+    await request(app.getHttpServer()).get('/v1/cells?service=water').expect(200).expect([]);
+    delete process.env.PUBLIC_MAP_ENABLED;
   });
 });
 

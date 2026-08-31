@@ -65,6 +65,30 @@
 - [ ] Unit 6: Alerts and notices.
 - [ ] Unit 7: Retention and rollout.
 
+## Work Unit 5 (API) TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | Triangulate | Refactor |
+|---|---|---|---|---|---|---|---|
+| 4.1 | `apps/api/test/app.integration-spec.ts` | PostgreSQL integration | 9 integration tests and 1 E2E test passed | `GET /v1/cells` returned 404 | 10 integration tests passed | Disabled map, 2–3 approved zones, service filter, expired episode, and a later-unapproved episode | Safe unknown-query guard and approved-zone join added; checks stayed green |
+
+## Work Unit 5 (API) Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `npm run test:integration` exited 0: 1 file and 10 PostgreSQL/NestJS/Supertest tests passed. |
+| Runtime harness command/scenario and exact result | `npm run test:e2e` exited 0: 1 Playwright public-site request test passed. |
+| Quality/build | `npm run check` and `npm run build` exited 0. |
+| Rollback boundary | Revert `apps/api/src/public-map/`, its AppModule wiring, the public-cells integration assertions, and this progress entry; intake and consensus remain intact. |
+
+## Remaining Work Units
+
+- [x] Unit 2: Data and privacy.
+- [x] Unit 3: Intake.
+- [x] Unit 4: Consensus.
+- [ ] Unit 5: Map and web (API task 4.1 complete; web task 4.2 pending).
+- [ ] Unit 6: Alerts and notices.
+- [ ] Unit 7: Retention and rollout.
+
 ## Work Unit 3 TDD Cycle Evidence
 
 | Task | Test file | Layer | Safety net | RED | GREEN | Triangulate | Refactor |

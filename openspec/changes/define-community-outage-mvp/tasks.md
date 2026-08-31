@@ -46,7 +46,7 @@ Chain strategy: stacked-to-main
 
 ## Phase 4: Public Surfaces and Delivery
 
-- [ ] 4.1 RED→GREEN: test then implement `GET /v1/cells` suppression, safe fields, closure, gates, and empty state.
+- [x] 4.1 RED→GREEN: test then implement `GET /v1/cells` suppression, safe fields, closure, gates, and empty state.
 - [ ] 4.2 RED→GREEN: test then build Astro map/form islands, filters, notice, and accessible errors in `apps/web/src/`.
 - [ ] 4.3 RED: test opening-intent uniqueness/concurrency, safe content, leases, retry/cancellation, and provider-failure independence.
 - [ ] 4.4 GREEN: implement the `apps/api/src/alerts/` transactional outbox, `SKIP LOCKED` dispatcher, Telegram adapter, and dispatch gate.
