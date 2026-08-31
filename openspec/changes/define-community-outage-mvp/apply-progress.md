@@ -62,7 +62,33 @@
 - [ ] Unit 3: Intake.
 - [ ] Unit 4: Consensus.
 - [ ] Unit 5: Map and web.
-- [ ] Unit 6: Alerts and notices.
+- [x] Unit 6: Alerts and notices.
+- [ ] Unit 7: Retention and rollout.
+
+## Work Unit 6 (Alerts and Notices) TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | Triangulate | Refactor |
+|---|---|---|---|---|---|---|---|
+| 4.3 | `apps/api/src/alerts/alerts.service.spec.ts`, `apps/api/test/app.integration-spec.ts` | Unit + PostgreSQL integration | 9 API unit tests and 10 integration tests passed | Alert module missing; integration import failed | 2 focused unit and 11 integration tests passed | Safe opening text, bounded backoff, concurrent intent uniqueness, provider failure, cancellation | Extracted pure content/backoff policy; checks stayed green |
+| 4.4 | `apps/api/test/app.integration-spec.ts` | PostgreSQL integration | 10 integration tests passed | `AlertIntent` table/service absent | 11 integration tests passed | `FOR UPDATE SKIP LOCKED` claim, lease, retryable status, and disabled dispatch cancellation | Kept provider adapter behind a single private boundary; checks stayed green |
+| 4.5 | `apps/api/src/notices/notices.service.spec.ts`, `apps/api/test/app.integration-spec.ts` | Unit + PostgreSQL integration | 11 integration tests and 11 API unit tests passed | Notice module missing; `GET /v1/zones/central/notice` returned 404 | 2 focused unit and 12 integration tests passed | Central/North pure output; unknown and unapproved zones return 404 | Returned a minimal printable DTO containing only zone-level community information |
+
+## Work Unit 6 Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `npm run test:unit --workspace @mis-servicios/api -- alerts` exited 0: 1 file, 2 tests. `npm run test:unit --workspace @mis-servicios/api -- notices` exited 0: 1 file, 2 tests. |
+| Runtime harness command/scenario and exact result | `npm run test:integration` exited 0: PostgreSQL 17/NestJS/Supertest, 1 file and 12 tests. It proved concurrent opening creates one intent, a Telegram configuration failure marks it retryable while the episode remains active, disabled dispatch cancels it, and notices refuse missing/unapproved zones. |
+| E2E/build/quality | `npm run check` exited 0: 8 total unit files and 16 tests; `npm run test:e2e` exited 0: 2 Playwright static-web tests; `npm run build` exited 0. The static browser harness has no live API process, so the PostgreSQL harness is the authoritative runtime proof for this API-only slice. |
+| Rollback boundary | Revert `cb61ec7` to remove the AlertIntent schema/migration, alerts service, consensus queue call, and alert tests; revert `91b3e53` to remove notices service/controller and notice tests. Neither revert removes report acceptance, episode consensus, or public cells. |
+
+## Remaining Work Units
+
+- [x] Unit 2: Data and privacy.
+- [x] Unit 3: Intake.
+- [x] Unit 4: Consensus.
+- [x] Unit 5: Map and web.
+- [x] Unit 6: Alerts and notices.
 - [ ] Unit 7: Retention and rollout.
 
 ## Work Unit 5 (Web) TDD Cycle Evidence
@@ -86,7 +112,7 @@
 - [x] Unit 3: Intake.
 - [x] Unit 4: Consensus.
 - [x] Unit 5: Map and web.
-- [ ] Unit 6: Alerts and notices.
+- [x] Unit 6: Alerts and notices.
 - [ ] Unit 7: Retention and rollout.
 
 ## Work Unit 5 (API) TDD Cycle Evidence
@@ -110,7 +136,7 @@
 - [x] Unit 3: Intake.
 - [x] Unit 4: Consensus.
 - [ ] Unit 5: Map and web (API task 4.1 complete; web task 4.2 pending).
-- [ ] Unit 6: Alerts and notices.
+- [x] Unit 6: Alerts and notices.
 - [ ] Unit 7: Retention and rollout.
 
 ## Work Unit 3 TDD Cycle Evidence
@@ -135,7 +161,7 @@
 - [x] Unit 3: Intake.
 - [ ] Unit 4: Consensus.
 - [ ] Unit 5: Map and web.
-- [ ] Unit 6: Alerts and notices.
+- [x] Unit 6: Alerts and notices.
 - [ ] Unit 7: Retention and rollout.
 
 ## Work Unit 4 TDD Cycle Evidence
@@ -160,5 +186,5 @@
 - [x] Unit 3: Intake.
 - [x] Unit 4: Consensus.
 - [ ] Unit 5: Map and web.
-- [ ] Unit 6: Alerts and notices.
+- [x] Unit 6: Alerts and notices.
 - [ ] Unit 7: Retention and rollout.
