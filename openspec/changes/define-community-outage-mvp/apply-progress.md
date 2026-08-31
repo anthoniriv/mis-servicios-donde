@@ -64,3 +64,28 @@
 - [ ] Unit 5: Map and web.
 - [ ] Unit 6: Alerts and notices.
 - [ ] Unit 7: Retention and rollout.
+
+## Work Unit 3 TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | Triangulate | Refactor |
+|---|---|---|---|---|---|---|---|
+| 3.1 | `reports/report-input.spec.ts`, `test/app.integration-spec.ts` | Unit + PostgreSQL integration | 4 unit + 2 integration passed | Missing module; endpoint 404 | 6 unit + 6 integration passed | 1, 2, and 3 services; outside, retry, conflict, rollback | Type/lint cleanup passed |
+| 3.2 | `test/app.integration-spec.ts` | PostgreSQL integration | 6 integration passed | Update of `ReportEvent` succeeded | Mutation trigger rejects updates; 6 integration passed | Successful expansion and forced service failure | Final check/build/integration passed |
+
+## Work Unit 3 Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused tests | `npm run test:unit --workspace @mis-servicios/api -- reports` exited 0: 1 file, 2 tests. |
+| Runtime harness | `docker compose up -d --wait postgres` healthy; `npm run test:integration` exited 0: 1 file, 6 PostgreSQL/Supertest tests. |
+| Quality/build | `npm run check` and `npm run build` exited 0. |
+| Rollback boundary | Revert the reports module, H3 dependency, intake migrations, test coverage, and this progress entry; privacy foundation remains. |
+
+## Remaining Work Units
+
+- [x] Unit 2: Data and privacy.
+- [x] Unit 3: Intake.
+- [ ] Unit 4: Consensus.
+- [ ] Unit 5: Map and web.
+- [ ] Unit 6: Alerts and notices.
+- [ ] Unit 7: Retention and rollout.

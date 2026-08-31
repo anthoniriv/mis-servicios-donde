@@ -39,8 +39,8 @@ Chain strategy: stacked-to-main
 
 ## Phase 3: Intake and Consensus
 
-- [ ] 3.1 RED: test pilot boundaries, atomic 1–3-service expansion, identical/conflicting retries, and all-or-nothing failure in `apps/api/src/reports/`.
-- [ ] 3.2 GREEN: implement `POST /v1/reports`, early scrubbing, atomic events, and stable outcomes.
+- [x] 3.1 RED: test pilot boundaries, atomic 1–3-service expansion, identical/conflicting retries, and all-or-nothing failure in `apps/api/src/reports/`.
+- [x] 3.2 GREEN: implement `POST /v1/reports`, early scrubbing, atomic events, and stable outcomes.
 - [ ] 3.3 RED: test quorum uniqueness/isolation, ordered-lock concurrency, refresh/restoration/expiry, and lone-report non-refresh.
 - [ ] 3.4 GREEN: implement `apps/api/src/consensus/` advisory locks and `OutageEpisode`; exclude expired rows before sweeps.
 

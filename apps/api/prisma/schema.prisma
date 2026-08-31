@@ -16,6 +16,7 @@ model PilotZone {
   slug      String   @unique
   name      String
   approved  Boolean  @default(false)
+  boundary  Json     @default("[]")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   episodes  OutageEpisode[]
