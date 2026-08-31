@@ -65,6 +65,30 @@
 - [ ] Unit 6: Alerts and notices.
 - [ ] Unit 7: Retention and rollout.
 
+## Work Unit 5 (Web) TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | Triangulate | Refactor |
+|---|---|---|---|---|---|---|---|
+| 4.2 | `e2e/foundation.spec.ts` | Playwright E2E | 1 E2E test passed | Heading missing from the original page | 2 E2E tests passed | Intercepted water filter returns a safe aggregate; unselected-service submit exposes an accessible error | Removed detector-flagged font choice; checks stayed green |
+
+## Work Unit 5 (Web) Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `npm run test:e2e` exited 0: 2 Playwright tests passed. |
+| Runtime harness command/scenario and exact result | Browser exercised the static Astro page, public notice, service-filter request, and no-service form validation; 2 Playwright tests passed. |
+| Quality/build | `npm run check`, `npm run test:integration`, and `npm run build` exited 0. |
+| Rollback boundary | Revert the Astro page, its E2E coverage, and this progress entry; the API public-cells slice remains usable independently. |
+
+## Remaining Work Units
+
+- [x] Unit 2: Data and privacy.
+- [x] Unit 3: Intake.
+- [x] Unit 4: Consensus.
+- [x] Unit 5: Map and web.
+- [ ] Unit 6: Alerts and notices.
+- [ ] Unit 7: Retention and rollout.
+
 ## Work Unit 5 (API) TDD Cycle Evidence
 
 | Task | Test file | Layer | Safety net | RED | GREEN | Triangulate | Refactor |

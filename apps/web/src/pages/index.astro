@@ -4,15 +4,46 @@ import { siteNotice } from '../content.js';
 
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width" />
-    <title>Mis Servicios</title>
-  </head>
+  <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width" /><title>Mis Servicios | Community outage reports</title></head>
   <body>
     <main>
-      <h1>Mis Servicios</h1>
-      <p>{siteNotice}</p>
+      <header><p class="product-name">Mis Servicios</p><h1>Community outage map</h1><p class="intro">See confirmed reports from this pilot. Share what you are seeing to help your neighbors get a clearer picture.</p></header>
+      <p class="notice" role="note">{siteNotice} Community-generated information is unofficial and not provider-confirmed.</p>
+      <section class="map-panel" aria-labelledby="map-heading" data-island="outage-map">
+        <div class="section-heading"><div><h2 id="map-heading">Confirmed conditions</h2><p>Only community reports with enough independent confirmation appear here.</p></div><label><span>Show service</span><select id="service-filter" name="service"><option value="all">All services</option><option value="water">Water</option><option value="electricity">Electricity</option><option value="internet">Internet</option></select></label></div>
+        <div id="map-state" role="status" aria-live="polite">No confirmed outages are available right now.</div><ul id="cell-list" aria-label="Confirmed outage cells"></ul>
+      </section>
+      <section class="report-panel" aria-labelledby="report-heading" data-island="report-form">
+        <div><h2 id="report-heading">Report a service condition</h2><p>Your precise location is used once to group the report into a broad area. It is not stored or shown publicly.</p></div>
+        <form id="report-form" novalidate>
+          <fieldset><legend>Affected services</legend><label><input type="checkbox" name="services" value="water" /> Water</label><label><input type="checkbox" name="services" value="electricity" /> Electricity</label><label><input type="checkbox" name="services" value="internet" /> Internet</label></fieldset>
+          <fieldset><legend>What is happening?</legend><label><input type="radio" name="status" value="outage" checked /> Service is unavailable</label><label><input type="radio" name="status" value="restored" /> Service is restored</label></fieldset>
+          <button type="submit">Send report</button><p id="report-state" role="alert" aria-live="assertive"></p>
+        </form>
+      </section>
     </main>
+    <script>
+      const filter = document.querySelector('#service-filter'); const mapState = document.querySelector('#map-state'); const cellList = document.querySelector('#cell-list'); const reportForm = document.querySelector('#report-form'); const reportState = document.querySelector('#report-state'); const deviceId = crypto.randomUUID();
+      async function loadCells() {
+        if (!(filter instanceof HTMLSelectElement) || !(mapState instanceof HTMLElement) || !(cellList instanceof HTMLUListElement)) return;
+        const suffix = filter.value === 'all' ? '' : `?service=${encodeURIComponent(filter.value)}`; mapState.textContent = 'Loading confirmed conditions…'; cellList.replaceChildren();
+        try { const response = await fetch(`/v1/cells${suffix}`); const cells = response.ok ? await response.json() : [];
+          if (!Array.isArray(cells) || cells.length === 0) { mapState.textContent = 'No confirmed outages are available right now.'; return; }
+          mapState.textContent = `${cells.length} confirmed condition${cells.length === 1 ? '' : 's'} available.`;
+          for (const cell of cells) { if (typeof cell?.h3Cell !== 'string' || typeof cell?.service !== 'string') continue; const item = document.createElement('li'); item.textContent = `${cell.service} condition in a nearby area`; cellList.append(item); }
+        } catch { mapState.textContent = 'No confirmed outages are available right now.'; }
+      }
+      filter?.addEventListener('change', loadCells); void loadCells();
+      reportForm?.addEventListener('submit', (event) => { event.preventDefault(); if (!(reportForm instanceof HTMLFormElement) || !(reportState instanceof HTMLElement)) return;
+        const services = Array.from(reportForm.querySelectorAll<HTMLInputElement>('input[name="services"]:checked')).map((input) => input.value);
+        if (services.length === 0) { reportState.textContent = 'Choose at least one affected service.'; return; }
+        if (!navigator.geolocation) { reportState.textContent = 'Location is unavailable. Try again from a browser that allows location access.'; return; }
+        reportState.textContent = 'Requesting your location…'; navigator.geolocation.getCurrentPosition(async (position) => { const status = reportForm.querySelector<HTMLInputElement>('input[name="status"]:checked')?.value; const response = await fetch('/v1/reports', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ submissionId: crypto.randomUUID(), deviceId, services, status, latitude: position.coords.latitude, longitude: position.coords.longitude }) }); reportState.textContent = response.ok ? 'Report received. Thank you for helping your community.' : 'Unable to send your report right now. Please try again later.'; }, () => { reportState.textContent = 'Location access is needed to group your report into a broad area.'; });
+      });
+    </script>
   </body>
 </html>
+
+<style>
+  :root { color: #16271f; background: #f4f8f2; font-family: ui-sans-serif, system-ui, sans-serif; } body { margin: 0; } main { width: min(100% - 2rem, 68rem); margin: 0 auto; padding: 3rem 0 4rem; } header { max-width: 44rem; } .product-name { font-weight: 700; color: #176448; margin: 0 0 .5rem; } h1, h2 { letter-spacing: -.025em; margin: 0; } h1 { font-size: clamp(2rem, 6vw, 3.6rem); line-height: 1; } h2 { font-size: 1.35rem; } .intro { font-size: 1.1rem; line-height: 1.6; } .notice { border-block: 1px solid #a6c4b2; padding: 1rem 0; line-height: 1.5; } .map-panel, .report-panel { margin-top: 2rem; padding: 1.5rem; border-radius: .85rem; background: #fff; box-shadow: 0 12px 30px rgb(22 39 31 / .09); } .section-heading { display: flex; gap: 1rem; justify-content: space-between; align-items: start; } .section-heading p, .report-panel > div p { max-width: 48rem; line-height: 1.5; } label, fieldset { display: grid; gap: .5rem; } select, button { font: inherit; border-radius: .5rem; padding: .7rem .8rem; } select { border: 1px solid #6b8375; background: #fff; } button { margin-top: 1rem; border: 0; background: #176448; color: #fff; font-weight: 700; cursor: pointer; } button:hover { background: #0f5138; } button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid #da9a32; outline-offset: 3px; } fieldset { margin-top: 1rem; border: 1px solid #c8d6cc; border-radius: .5rem; } #map-state, #report-state { margin-top: 1rem; line-height: 1.5; } #report-state:not(:empty) { color: #9d2c20; font-weight: 600; } #cell-list { padding-left: 1.25rem; } @media (max-width: 38rem) { main { padding-top: 2rem; } .section-heading { display: grid; } }
+</style>
