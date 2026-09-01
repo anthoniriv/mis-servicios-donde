@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 import pg from 'pg';
 
+import { isMigrationDirectoryName } from './migration-name.js';
+
 const migrationTable = '"_MisServiciosMigration"';
 
 interface MigrationFile {
@@ -90,7 +92,7 @@ async function loadMigrations(): Promise<MigrationFile[]> {
   const migrationsRoot = await findMigrationsRoot();
   const entries = await readdir(migrationsRoot, { withFileTypes: true });
   const directories = entries
-    .filter((entry) => entry.isDirectory() && /^\d+_[a-z0-9-]+$/.test(entry.name))
+    .filter((entry) => entry.isDirectory() && isMigrationDirectoryName(entry.name))
     .sort((left, right) => left.name.localeCompare(right.name));
 
   if (directories.length === 0) {
@@ -136,7 +138,7 @@ async function findMigrationsRoot(): Promise<string> {
     try {
       const entries = await readdir(candidate, { withFileTypes: true });
       const hasMigrationDirectory = entries.some(
-        (entry) => entry.isDirectory() && /^\d+_[a-z0-9-]+$/.test(entry.name),
+        (entry) => entry.isDirectory() && isMigrationDirectoryName(entry.name),
       );
       if (hasMigrationDirectory) return candidate;
     } catch {
