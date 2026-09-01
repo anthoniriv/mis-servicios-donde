@@ -134,8 +134,11 @@ async function findMigrationsRoot(): Promise<string> {
 
   for (const candidate of candidates) {
     try {
-      await readdir(candidate);
-      return candidate;
+      const entries = await readdir(candidate, { withFileTypes: true });
+      const hasMigrationDirectory = entries.some(
+        (entry) => entry.isDirectory() && /^\d+_[a-z0-9-]+$/.test(entry.name),
+      );
+      if (hasMigrationDirectory) return candidate;
     } catch {
       // Try the next layout used by local and Railway deployments.
     }
