@@ -1,8 +1,47 @@
-# Community outage pilot operations
+# Mis Servicios
 
-This repository verifies a privacy-first, community-generated outage pilot for water, electricity, and internet. It is **unofficial** data: publish only approved pilot zones, never claim provider confirmation, and never treat the alert path as exactly-once delivery.
+**Mis Servicios** is a privacy-first pilot for community-reported outages of water, electricity, and internet. It helps neighbours see whether a disruption is affecting an approved pilot zone—without presenting community reports as provider-confirmed information.
 
-## Quick path
+> **Unofficial data.** Publish only approved pilot zones, never imply provider confirmation, and never promise exactly-once alert delivery.
+
+## Product value
+
+An isolated report is hard to interpret. The pilot groups short-lived, pseudonymous reports by H3 cell and service so that the public map can reveal corroborated local patterns while keeping exact locations, device tokens, names, and report timestamps out of the published data.
+
+## Main capabilities
+
+- Community intake for water, electricity, and internet disruptions.
+- Public map that only exposes approved pilot zones and aggregate H3 cells.
+- Corroboration flow that distinguishes pending reports from confirmed outage episodes.
+- Optional Telegram alert dispatch through a durable outbox with bounded retries.
+- Privacy and retention workers for expiry and deletion.
+- Product gates that independently control intake, public publication, alerting, and retention.
+
+## User flow
+
+1. A resident submits an outage report while intake is enabled and their location falls inside an approved pilot zone.
+2. The API derives an H3 cell; it does not persist or publish the precise coordinates.
+3. Corroborating reports can form an outage episode.
+4. The browser map shows permitted aggregate cells, and the alert worker may notify Telegram when dispatch is enabled.
+
+## Architecture and stack
+
+| Layer | Technology | Responsibility |
+|---|---|---|
+| Web | Astro + Leaflet | Map and browser reporting experience |
+| API | NestJS | Intake, publication, trust, notices, and workers |
+| Contracts | TypeScript + Zod | Shared domain contracts |
+| Data | PostgreSQL 17 + H3 | Pilot zones, aggregate cells, and operational records |
+| Quality | Vitest + Playwright | Unit, integration, and browser verification |
+
+```text
+apps/api/           NestJS API, migrations, workers, seed, integration tests
+apps/web/           Astro public-map client
+packages/contracts/ shared types and validation schemas
+docker/              local PostgreSQL initialization
+```
+
+## Quick start
 
 1. Use Node.js 22 or later and install locked dependencies:
 
@@ -40,13 +79,13 @@ The integration suite resets the local test schema and applies every committed S
 
 ## Development data
 
-The pilot only works with real data in place, and a half-seeded database is indistinguishable from a broken one: intake refuses every report when no approved zone contains the coordinates, and the public map publishes nothing unless exactly two or three zones are approved.
+The pilot only works with real data in place, and a half-seeded database is indistinguishable from a broken one: intake refuses every report when no approved zone contains the coordinates, and the public map publishes nothing unless at least two zones are approved.
 
 ```sh
 npm run db:seed --workspace @mis-servicios/api
 ```
 
-The seed applies migrations when the schema is absent, then upserts three approved Lima zones (Breña, Cercado de Lima, Jesús María) with real bounding boxes. It refuses to run against a database whose name ends in `_test`.
+The seed applies migrations when the schema is absent, then upserts ten approved Lima districts: Breña, Cercado de Lima, Jesús María, Lince, Magdalena del Mar, Rímac, San Borja, San Isidro, San Juan de Lurigancho, and San Martín de Porres. It refuses to run against a database whose name ends in `_test`.
 
 **The integration suite drops and recreates its schema on every run.** It reads `TEST_DATABASE_URL` and never falls back to `DATABASE_URL`, so a test run cannot reach development data no matter what the shell exports.
 
@@ -79,7 +118,7 @@ Do not commit `.env` or secret values. Supply values through the process environ
 | `TELEGRAM_BOT_TOKEN` | alert dispatch | Telegram bot credential. |
 | `TELEGRAM_CHAT_ID` | alert dispatch | Destination channel or chat identifier. |
 
-Zone approval comes from `PilotZone` rows in PostgreSQL, never from configuration. Every approved zone must carry an explicit bounding-box `boundary`; a zone without one matches no report.
+Zone approval comes from `PilotZone` rows in PostgreSQL, never from configuration. The development seed is only a reproducible source for those rows. Every approved zone must carry an explicit bounding-box `boundary`; a zone without one matches no report. Bounding boxes are intentionally coarse operational coverage, not administrative polygons: the first-wave boxes have 18 positive-area intersections between neighbouring districts, so they must not be used to make precise district-attribution claims. Replace them with validated polygons before relying on border-level classification.
 
 ## Gates and workers
 

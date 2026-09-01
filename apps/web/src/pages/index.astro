@@ -36,7 +36,7 @@ import { siteNotice } from '../content.js';
       <div id="outage-map" aria-label="Mapa de zonas con cortes confirmados. Los mismos cortes aparecen como texto en el panel."></div>
     </div>
 
-    <header class="plate">
+    <header class="plate" id="site-identity">
       <p class="wordmark">Mis Servicios</p>
       <p class="unofficial" role="note">{siteNotice} No es un canal oficial de Sedapal, Luz del Sur ni de ningún proveedor.</p>
     </header>
@@ -154,6 +154,8 @@ import { siteNotice } from '../content.js';
       const cellInfoStreets = $<HTMLElement>('#cell-info-streets');
       const cellInfoClose = $<HTMLButtonElement>('#cell-info-close');
       const providerFields = $<HTMLDivElement>('#provider-fields');
+      const siteIdentity = $<HTMLElement>('#site-identity');
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       const deviceId = (() => {
         const key = 'mis-servicios:device-id';
         const existing = localStorage.getItem(key);
@@ -171,6 +173,24 @@ import { siteNotice } from '../content.js';
       let myDistrictSlug: string | undefined;
       let painted: NearbyCell[] = [];
       let fetchedCells: PublicCell[] = [];
+
+      function hideSiteIdentity(): void {
+        if (!siteIdentity) return;
+        siteIdentity.hidden = true;
+        siteIdentity.setAttribute('aria-hidden', 'true');
+      }
+
+      if (siteIdentity) {
+        window.setTimeout(() => {
+          if (reducedMotion) {
+            hideSiteIdentity();
+            return;
+          }
+          siteIdentity.classList.add('is-dismissing');
+          siteIdentity.addEventListener('transitionend', hideSiteIdentity, { once: true });
+          window.setTimeout(hideSiteIdentity, 400);
+        }, 3_500);
+      }
 
       const icons: Record<Service, string> = {
         water: '<path d="M12 3.5c3.4 4 5.2 6.6 5.2 8.9a5.2 5.2 0 0 1-10.4 0c0-2.3 1.8-4.9 5.2-8.9Z"/>',
@@ -665,14 +685,17 @@ import { siteNotice } from '../content.js';
         35% { box-shadow: 0 0 0 9px rgb(10 108 156 / 0), 0 2px 8px rgb(22 32 26 / .38); }
       }
 
-      /* The unofficial plate: always present, always level, never dismissible. */
+      /* The unofficial plate is static without JavaScript, then yields the map. */
       .plate {
         position: fixed; inset: .75rem .75rem auto; z-index: 700; max-width: 44rem;
         display: flex; flex-wrap: wrap; align-items: baseline; gap: .1rem 1rem;
         padding: .7rem 1rem; border: 1px solid var(--line); border-radius: 14px;
         background: rgb(251 252 249 / .93); backdrop-filter: blur(10px);
         box-shadow: 0 6px 22px rgb(22 32 26 / .14);
+        transition: opacity 260ms ease-out;
       }
+      .plate.is-dismissing { opacity: 0; pointer-events: none; }
+      .plate[hidden] { display: none; }
       .wordmark { margin: 0; font-family: Comfortaa, Nunito, sans-serif; font-weight: 700; font-size: 1.05rem; letter-spacing: -.01em; }
       .unofficial { margin: 0; color: var(--muted); font-size: .74rem; line-height: 1.4; max-width: 62ch; text-wrap: pretty; }
 
@@ -847,7 +870,7 @@ import { siteNotice } from '../content.js';
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .rail, #submit { transition: none; }
+        .rail, #submit, .plate { transition: none; }
         .me span { animation: none; }
       }
     </style>

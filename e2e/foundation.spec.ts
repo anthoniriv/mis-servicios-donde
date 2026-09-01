@@ -22,3 +22,12 @@ test('offers an unofficial filtered map and accessible report validation', async
   await page.getByRole('button', { name: 'Enviar reporte' }).click();
   await expect(page.getByRole('alert')).toContainText('Elige al menos un servicio afectado.');
 });
+
+test('shows the identity notice before yielding the map after its timeout', async ({ page }) => {
+  await page.goto('/');
+
+  const identity = page.locator('#site-identity');
+  await expect(identity).toBeVisible();
+  await expect(identity.getByRole('note')).toBeVisible();
+  await expect(identity).toBeHidden({ timeout: 5_000 });
+});
