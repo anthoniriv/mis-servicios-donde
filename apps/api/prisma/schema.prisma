@@ -8,6 +8,7 @@ datasource db {
 }
 
 enum Service { water electricity internet }
+enum Provider { sedapal luz_del_sur pluz movistar claro win wow mifibra other }
 enum ReportStatus { outage restored }
 enum TrustDecision { eligible excluded }
 enum EpisodeClosureReason { restored expired }
@@ -18,7 +19,7 @@ model PilotZone {
   slug      String   @unique
   name      String
   approved  Boolean  @default(false)
-  boundary  Json     @default("[]")
+  boundary  Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   episodes  OutageEpisode[]
@@ -43,13 +44,14 @@ model ReportEvent {
   submissionId String       @db.Uuid
   h3Cell       String
   service      Service
+  provider     Provider
   status       ReportStatus
   deviceToken  String
   createdAt    DateTime     @default(now())
   expiresAt    DateTime
   submission   SubmissionRecord @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   displayName  ReportDisplayName?
-  @@index([h3Cell, service, status, createdAt])
+  @@index([h3Cell, service, provider, status, createdAt])
   @@index([expiresAt])
 }
 
@@ -76,6 +78,7 @@ model OutageEpisode {
   zoneId    String   @db.Uuid
   h3Cell    String
   service   Service
+  provider  Provider
   active    Boolean  @default(true)
   expiresAt DateTime
   openedAt  DateTime @default(now())
@@ -84,7 +87,7 @@ model OutageEpisode {
   closureReason EpisodeClosureReason?
   zone      PilotZone @relation(fields: [zoneId], references: [id])
   alerts    AlertIntent[]
-  @@index([h3Cell, service, active, expiresAt])
+  @@index([h3Cell, service, provider, active, expiresAt])
 }
 
 model AlertIntent {

@@ -4,6 +4,6 @@ import { siteNotice } from './content.js';
 
 describe('site content', () => {
   it('identifies the community data as unofficial', () => {
-    expect(siteNotice).toContain('unofficial');
+    expect(siteNotice).toContain('no oficial');
   });
 });

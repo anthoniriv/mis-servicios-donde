@@ -2,29 +2,29 @@
 
 ## Purpose
 
-Define a privacy-preserving public view of confirmed community outage conditions during the pilot.
+Define a privacy-preserving public view of reported community outage conditions during the pilot.
 
 ## Requirements
 
-### Requirement: Minimum-count publication
+### Requirement: Quorum-distinguished publication
 
-The public map **MUST** show a cell and service only while an active episode has at least the three distinct eligible reports required for quorum. It **MUST NOT** expose lone reports or suppressed cells.
+The public map **MUST** show a cell and service once at least one eligible outage report exists, marking it **confirmed** only while an active episode has the three distinct eligible reports required for quorum, and **unconfirmed** otherwise. Each public cell **MUST** expose the number of distinct devices that reported it.
 
 #### Scenario: Confirmed active outage
 
 - GIVEN a cell and service have an active confirmed episode
 - WHEN a visitor loads the map
-- THEN the map MUST show that aggregate condition at the configured H3 resolution
+- THEN the map MUST show that aggregate condition at the configured H3 resolution as confirmed, with its distinct report count
 
 #### Scenario: Below-threshold reports
 
 - GIVEN fewer than three distinct eligible devices support a cell and service
 - WHEN a visitor loads the map
-- THEN the map MUST NOT reveal that condition or its underlying reports
+- THEN the map MUST show the condition as unconfirmed with its distinct report count, and MUST NOT reveal any report identities
 
 ### Requirement: Public lifecycle
 
-The map **MUST** remove a condition when its episode becomes restored or expired. It **MUST NOT** describe expiry as restoration. Public aggregate data **MUST NOT** include device tokens, names, coordinates, or individual event timestamps.
+The map **MUST** remove an unconfirmed condition once its reports expire or a quorum confirms it; it **MUST** remove a confirmed condition when its episode becomes restored or expired. It **MUST NOT** describe expiry as restoration. Public aggregate data **MUST NOT** include device tokens, names, coordinates, or individual event timestamps.
 
 #### Scenario: Episode closes
 
@@ -56,7 +56,7 @@ Every map surface **MUST** clearly state that conditions are community-generated
 
 ### Requirement: Bounded pilot rollout
 
-Public operation **MUST NOT** be enabled until two or three named pilot zones and one H3 resolution are approved and configured. Only configured zones **MUST** be represented. Intake and map publication **SHOULD** be independently disableable; disabling intake **MUST** preserve the notice and a read-only empty map.
+Public operation **MUST NOT** be enabled until two or more named pilot zones and one H3 resolution are approved and configured. Only configured zones **MUST** be represented. Intake and map publication **SHOULD** be independently disableable; disabling intake **MUST** preserve the notice and a read-only empty map.
 
 #### Scenario: Incomplete pilot configuration
 

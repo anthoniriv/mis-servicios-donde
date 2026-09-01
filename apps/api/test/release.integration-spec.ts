@@ -12,7 +12,8 @@ import { AlertsService } from '../src/alerts/alerts.service.js';
 import { ConsensusService } from '../src/consensus/consensus.service.js';
 import { AppModule } from '../src/app.module.js';
 
-const databaseUrl = process.env.DATABASE_URL ??
+/** Never DATABASE_URL: these specs drop the schema, and development data must survive them. */
+const databaseUrl = process.env.TEST_DATABASE_URL ??
   'postgresql://mis_servicios:mis_servicios@127.0.0.1:54329/mis_servicios_test';
 
 describe('release outage flow', () => {
@@ -21,7 +22,9 @@ describe('release outage flow', () => {
   let alerts: AlertsService;
 
   beforeAll(async () => {
+    process.env.DATABASE_URL = databaseUrl;
     process.env.INTAKE_ENABLED = 'true';
+    process.env.DEVICE_TOKEN_SECRET = 'test-device-secret';
     process.env.PUBLIC_MAP_ENABLED = 'true';
     process.env.ALERT_DISPATCH_ENABLED = 'true';
     process.env.H3_RESOLUTION = '9';
@@ -50,7 +53,7 @@ describe('release outage flow', () => {
   });
 
   it('creates one safe public cell and one retryable opening intent from concurrent reports', async () => {
-    const base = { services: ['water'], status: 'outage', latitude: -12.0464, longitude: -77.0428, name: 'Release Reporter' };
+    const base = { services: ['water'], providers: { water: 'sedapal' }, status: 'outage', latitude: -12.0464, longitude: -77.0428, name: 'Release Reporter' };
     await Promise.all(['a', 'b', 'c'].map((suffix) => request(app.getHttpServer())
       .post('/v1/reports')
       .send({ ...base, deviceId: `release-device-${suffix}`, submissionId: `release-submission-${suffix}` })
@@ -59,7 +62,7 @@ describe('release outage flow', () => {
 
     const cells = await request(app.getHttpServer()).get('/v1/cells?service=water').expect(200);
     expect(cells.body).toHaveLength(1);
-    expect(Object.keys(cells.body[0] ?? {}).sort()).toEqual(['h3Cell', 'service']);
+    expect(Object.keys(cells.body[0] ?? {}).sort()).toEqual(['confirmed', 'h3Cell', 'provider', 'reports', 'service']);
     expect(JSON.stringify(cells.body)).not.toMatch(/device|reporter|latitude|longitude|created/i);
 
     await Promise.all([alerts.dispatchPending(), alerts.dispatchPending()]);
@@ -74,7 +77,7 @@ describe('release outage flow', () => {
     delete process.env.INTAKE_ENABLED;
     await request(app.getHttpServer())
       .post('/v1/reports')
-      .send({ services: ['water'], status: 'outage', latitude: -12.0464, longitude: -77.0428, deviceId: 'disabled-device', submissionId: 'disabled-submission' })
+      .send({ services: ['water'], providers: { water: 'sedapal' }, status: 'outage', latitude: -12.0464, longitude: -77.0428, deviceId: 'disabled-device', submissionId: 'disabled-submission' })
       .expect(400)
       .expect({ code: 'report_unavailable', message: 'Unable to process report.' });
     expect((await database.query('SELECT * FROM "SubmissionRecord" WHERE "submissionId" = \'disabled-submission\'' )).rowCount).toBe(0);
@@ -93,10 +96,11 @@ describe('remediation verification coverage', () => {
   let database: pg.Pool;
   let alerts: AlertsService;
   let consensus: ConsensusService;
-  const report = { services: ['water'], status: 'outage', latitude: -12.0464, longitude: -77.0428 };
+  const report = { services: ['water'], providers: { water: 'sedapal' }, status: 'outage', latitude: -12.0464, longitude: -77.0428 };
 
   beforeAll(async () => {
     process.env.INTAKE_ENABLED = 'true';
+    process.env.DEVICE_TOKEN_SECRET = 'test-device-secret';
     process.env.PUBLIC_MAP_ENABLED = 'true';
     process.env.ALERT_DISPATCH_ENABLED = 'true';
     process.env.H3_RESOLUTION = '9';
@@ -151,22 +155,25 @@ describe('remediation verification coverage', () => {
     expect(JSON.stringify(persisted.rows)).not.toContain('raw-device');
   });
 
-  it('silently excludes a fourth hourly submission without adding a public condition', async () => {
-    for (const suffix of ['one', 'two', 'three', 'four']) await submit('limited-device', `limited-${suffix}`, { services: ['electricity'] });
-    const submissions = await database.query<{ trustDecision: string }>('SELECT "trustDecision" FROM "SubmissionRecord" WHERE "submissionId" LIKE \'limited-%\' ORDER BY "createdAt", "submissionId"');
-    expect(submissions.rows.map((row) => row.trustDecision)).toEqual(['eligible', 'eligible', 'eligible', 'excluded']);
-    expect((await database.query('SELECT * FROM "ReportEvent" WHERE "service" = \'electricity\'')).rowCount).toBe(3);
-    await request(app.getHttpServer()).get('/v1/cells?service=electricity').expect(200).expect([]);
+  it('accepts one report per device and refuses a second with an explicit signal', async () => {
+    await submit('limited-device', 'limited-one', { services: ['electricity'], providers: { electricity: 'pluz' } });
+    const second = await request(app.getHttpServer())
+      .post('/v1/reports')
+      .send({ ...report, services: ['electricity'], providers: { electricity: 'pluz' }, deviceId: 'limited-device', submissionId: 'limited-two' });
+    expect(second.status).toBe(409);
+    expect(second.body).toEqual({ code: 'already_reported', message: 'This device already reported a cut.' });
+    expect((await database.query('SELECT * FROM "ReportEvent" WHERE "service" = \'electricity\'')).rowCount).toBe(1);
+    await request(app.getHttpServer()).get('/v1/cells?service=electricity').expect(200).expect([{ h3Cell: '898e62c0cdbffff', service: 'electricity', provider: 'pluz', confirmed: false, reports: 1 }]);
   });
 
-  it('suppresses reports below quorum and removes restored conditions from the public map', async () => {
-    await Promise.all(['a', 'b'].map((suffix) => submit(`below-${suffix}`, `below-${suffix}`, { services: ['internet'] })));
-    await request(app.getHttpServer()).get('/v1/cells?service=internet').expect(200).expect([]);
+  it('shows reports below quorum as pending and removes restored conditions from the public map', async () => {
+    await Promise.all(['a', 'b'].map((suffix) => submit(`below-${suffix}`, `below-${suffix}`, { services: ['internet'], providers: { internet: 'win' } })));
+    await request(app.getHttpServer()).get('/v1/cells?service=internet').expect(200).expect([{ h3Cell: '898e62c0cdbffff', service: 'internet', provider: 'win', confirmed: false, reports: 2 }]);
 
-    await submit('below-c', 'below-c', { services: ['internet'] });
+    await submit('below-c', 'below-c', { services: ['internet'], providers: { internet: 'win' } });
     const confirmed = await request(app.getHttpServer()).get('/v1/cells?service=internet').expect(200);
-    expect(confirmed.body as unknown).toEqual([{ h3Cell: '898e62c0cdbffff', service: 'internet' }]);
-    await Promise.all(['a', 'b', 'c'].map((suffix) => submit(`restored-${suffix}`, `restored-${suffix}`, { services: ['internet'], status: 'restored' })));
+    expect(confirmed.body as unknown).toEqual([{ h3Cell: '898e62c0cdbffff', service: 'internet', provider: 'win', confirmed: true, reports: 3 }]);
+    await Promise.all(['a', 'b', 'c'].map((suffix) => submit(`restored-${suffix}`, `restored-${suffix}`, { services: ['internet'], providers: { internet: 'win' }, status: 'restored' })));
     await request(app.getHttpServer()).get('/v1/cells?service=internet').expect(200).expect([]);
     expect((await database.query<{ active: boolean; closureReason: string }>('SELECT "active", "closureReason" FROM "OutageEpisode" WHERE "service" = \'internet\'' )).rows[0]).toEqual({ active: false, closureReason: 'restored' });
   });
@@ -190,14 +197,14 @@ describe('remediation verification coverage', () => {
     expect((await database.query<{ id: string; status: string; attempts: number }>('SELECT "id", "status", "attempts" FROM "AlertIntent" WHERE "id" = $1', [intent.rows[0]?.id])).rows[0])
       .toEqual({ id: intent.rows[0]?.id, status: 'delivered', attempts: 1 });
 
-    await Promise.all(['electric-open-a', 'electric-open-b', 'electric-open-c'].map((id) => submit(id, id, { services: ['electricity'] })));
+    await Promise.all(['electric-open-a', 'electric-open-b', 'electric-open-c'].map((id) => submit(id, id, { services: ['electricity'], providers: { electricity: 'luz_del_sur' } })));
     expect((await database.query('SELECT * FROM "AlertIntent" WHERE "status" <> \'cancelled\'')).rowCount).toBe(2);
     await database.query('ALTER TABLE "ReportEvent" DISABLE TRIGGER prevent_report_event_mutation');
     await database.query('UPDATE "ReportEvent" SET "createdAt" = CURRENT_TIMESTAMP - INTERVAL \'61 minutes\' WHERE "service" = \'electricity\'');
     await database.query('ALTER TABLE "ReportEvent" ENABLE TRIGGER prevent_report_event_mutation');
-    await Promise.all(['refresh-a', 'refresh-b', 'refresh-c'].map((id) => submit(id, id, { services: ['electricity'] })));
+    await Promise.all(['refresh-a', 'refresh-b', 'refresh-c'].map((id) => submit(id, id, { services: ['electricity'], providers: { electricity: 'luz_del_sur' } })));
     expect((await database.query('SELECT * FROM "AlertIntent" WHERE "status" <> \'cancelled\'')).rowCount).toBe(2);
-    await Promise.all(['close-a', 'close-b', 'close-c'].map((id) => submit(id, id, { services: ['electricity'], status: 'restored' })));
+    await Promise.all(['close-a', 'close-b', 'close-c'].map((id) => submit(id, id, { services: ['electricity'], providers: { electricity: 'luz_del_sur' }, status: 'restored' })));
     expect((await database.query('SELECT * FROM "AlertIntent" WHERE "status" <> \'cancelled\'')).rowCount).toBe(2);
     await database.query('UPDATE "OutageEpisode" SET "expiresAt" = CURRENT_TIMESTAMP - INTERVAL \'1 second\' WHERE "service" = \'water\'');
     await consensus.expireStaleEpisodes();

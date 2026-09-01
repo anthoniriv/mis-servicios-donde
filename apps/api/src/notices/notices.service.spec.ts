@@ -7,11 +7,11 @@ describe('printable notice policy', () => {
     const notice = printableNotice({ name: 'Central' });
 
     expect(notice).toEqual({
-      title: 'Central community outage notice',
+      title: 'Aviso comunitario de cortes — Central',
       zone: 'Central',
-      instructions: 'Report water, electricity, or internet outages on the community map.',
+      instructions: 'Reporta cortes de agua, luz o internet en el mapa comunitario.',
       mapUrl: '/',
-      notice: 'Community-generated, unofficial outage information.',
+      notice: 'Información sobre cortes generada por la comunidad, no oficial.',
     });
   });
 

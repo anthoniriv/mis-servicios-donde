@@ -29,18 +29,16 @@ export function sanitizeDisplayName(value?: string): string | undefined {
   return sanitized || undefined;
 }
 
+export const submissionRateWindowHours = 1;
+export const submissionRateLimitPerWindow = 1;
+
 export function assessSubmissionEligibility(input: EligibilityInput): EligibilityResult {
-  const oneHourAgo = input.submittedAt.getTime() - 60 * 60 * 1000;
-  const recentCount = input.priorSubmissionTimes.filter((time) => time.getTime() > oneHourAgo).length;
-  return recentCount >= 3 ? { eligible: false, internalReason: 'rate_limit' } : { eligible: true };
+  const windowStart = input.submittedAt.getTime() - submissionRateWindowHours * 60 * 60 * 1000;
+  const recentCount = input.priorSubmissionTimes.filter((time) => time.getTime() > windowStart).length;
+  return recentCount >= submissionRateLimitPerWindow ? { eligible: false, internalReason: 'rate_limit' } : { eligible: true };
 }
 
 export function toPublicTrustOutcome(result: EligibilityResult): { accepted: true } {
   void result;
   return { accepted: true };
-}
-
-export function toSafeError(details: Record<string, unknown>): { code: 'report_unavailable'; message: string } {
-  void details;
-  return { code: 'report_unavailable', message: 'Unable to process report.' };
 }

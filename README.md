@@ -10,13 +10,24 @@ This repository verifies a privacy-first, community-generated outage pilot for w
    npm ci
    ```
 
-2. Start the local PostgreSQL 17 fixture:
+2. Start PostgreSQL 17. The container creates **two** databases: `mis_servicios` for development and `mis_servicios_test` for the integration suite.
 
    ```sh
    docker compose up -d --wait postgres
    ```
 
-3. Copy `.env.example` to your secret-management workflow, configure the variables below, and prove the checkout:
+3. Create a local `.env` from the example, set at least `DEVICE_TOKEN_SECRET`, then seed and run:
+
+   ```sh
+   cp .env.example .env
+   npm run build --workspace @mis-servicios/api
+   npm run db:seed --workspace @mis-servicios/api
+   npm run start --workspace @mis-servicios/api
+   ```
+
+   `.env` is gitignored and read natively through Node's `--env-file-if-exists`. Nothing loads it in production, where the platform supplies the environment.
+
+4. Prove the checkout. These are the same commands CI runs:
 
    ```sh
    npm run check
@@ -27,43 +38,81 @@ This repository verifies a privacy-first, community-generated outage pilot for w
 
 The integration suite resets the local test schema and applies every committed SQL migration. This repository does **not** provide a deployment migration command; apply the reviewed migration files through the deployment platform before enabling a production gate.
 
+## Development data
+
+The pilot only works with real data in place, and a half-seeded database is indistinguishable from a broken one: intake refuses every report when no approved zone contains the coordinates, and the public map publishes nothing unless exactly two or three zones are approved.
+
+```sh
+npm run db:seed --workspace @mis-servicios/api
+```
+
+The seed applies migrations when the schema is absent, then upserts three approved Lima zones (Breña, Cercado de Lima, Jesús María) with real bounding boxes. It refuses to run against a database whose name ends in `_test`.
+
+**The integration suite drops and recreates its schema on every run.** It reads `TEST_DATABASE_URL` and never falls back to `DATABASE_URL`, so a test run cannot reach development data no matter what the shell exports.
+
 ## Environment and secrets
 
 Do not commit `.env` or secret values. Supply values through the process environment or your deployment secret manager.
 
 | Variable | Required when | Purpose |
 |---|---|---|
-| `DATABASE_URL` | API, workers, integration tests | PostgreSQL connection. The Docker default is in `.env.example`. |
+| `DATABASE_URL` | API, workers, seed | PostgreSQL connection for the running application. The Docker development default is in `.env.example`. |
+| `TEST_DATABASE_URL` | integration tests only | Connection the integration suite drops and recreates. Defaults to `mis_servicios_test`; never falls back to `DATABASE_URL`. |
 | `PORT` | API process | HTTP listening port; defaults to `3000`. |
 | `INTAKE_ENABLED` | accepting reports | Must be exactly `true` before `POST /v1/reports` accepts data. |
-| `PUBLIC_MAP_ENABLED` | publishing map cells | Must be exactly `true`; publication also requires a valid H3 resolution and exactly two or three approved database zones. |
+| `PUBLIC_MAP_ENABLED` | publishing map cells | Must be exactly `true`; publication also requires a valid H3 resolution and two or more approved database zones. |
 | `ALERT_DISPATCH_ENABLED` | delivering alerts | Must be exactly `true` to attempt Telegram delivery. Disabling it cancels pending and retryable intents. |
-| `RETENTION_WORKER_ENABLED` | scheduled retention | Must be exactly `true` to run cleanup at startup and then hourly. |
-| `H3_RESOLUTION` | intake and public map | Integer from `0` through `15`; defaults to `9` in code when unset. |
-| `DEVICE_TOKEN_SECRET` | intake | HMAC secret actually read by the API to derive pseudonymous device tokens. Rotate only with a planned token-version migration. |
+| `RETENTION_WORKER_ENABLED` | scheduled retention | Must be exactly `true` to run cleanup at the next midnight in Lima and then daily. |
+| `H3_RESOLUTION` | intake and public map | Integer from `0` through `15`. There is no code default: while it is missing or invalid, intake refuses every report and the public map publishes nothing. |
+| `ALERT_DISPATCH_INTERVAL_SECONDS` | optional | How often the dispatch worker polls the outbox. Positive integer, defaults to `30`. |
+| `EPISODE_EXPIRY_INTERVAL_SECONDS` | optional | How often the expiry worker closes elapsed episodes. Positive integer, defaults to `300`. |
+| `DB_POOL_MAX` | optional | Maximum PostgreSQL connections per API instance; defaults to `10`. |
+| `DB_IDLE_TIMEOUT_MS` | optional | Time before an idle PostgreSQL connection closes; defaults to `30000`. |
+| `DB_CONNECTION_TIMEOUT_MS` | optional | Maximum time to establish a PostgreSQL connection; defaults to `5000`. |
+| `WEB_ORIGIN` | optional | Explicit browser origin allowed by API CORS. Leave empty when Vercel proxies the API same-origin. |
+| `RATE_LIMIT_MAX` | optional | Global requests per IP window; defaults to `120`. In-memory and single-instance. |
+| `RATE_LIMIT_WINDOW_MS` | optional | Global rate-limit window; defaults to `60000`. |
+| `REPORT_RATE_LIMIT_MAX` | optional | `POST /v1/reports` requests per IP window; defaults to `5`. |
+| `REPORT_RATE_LIMIT_WINDOW_MS` | optional | Report submission rate-limit window; defaults to `3600000`. |
+| `RATE_LIMIT_MAX_KEYS` | optional | Maximum in-memory rate-limit keys; defaults to `10000`. |
+| `DEVICE_TOKEN_SECRET` | intake | HMAC secret used to derive pseudonymous device tokens. There is no code default: while it is missing or blank, intake refuses every report. Rotate only with a planned token-version migration. |
 | `TELEGRAM_BOT_TOKEN` | alert dispatch | Telegram bot credential. |
 | `TELEGRAM_CHAT_ID` | alert dispatch | Destination channel or chat identifier. |
 
-`DEVICE_HMAC_KEY` and `PILOT_ZONE_SLUGS` remain in `.env.example` but are not currently read by the runtime. Zone approval comes from `PilotZone` rows in PostgreSQL. Treat this as a configuration gap to resolve before a production rollout; do not assume either variable enforces a boundary.
+Zone approval comes from `PilotZone` rows in PostgreSQL, never from configuration. Every approved zone must carry an explicit bounding-box `boundary`; a zone without one matches no report.
 
 ## Gates and workers
 
 Keep every product gate `false` until the release checks and privacy review are complete.
+
+The API also rejects oversized JSON bodies, applies security headers, enforces a 15-second request timeout, and returns `429` after the configured per-IP limits. The limiter is intentionally bounded but local to one instance; migrate it to Redis/Upstash before horizontal scaling.
 
 | Surface | Enable condition | Disable / rollback effect |
 |---|---|---|
 | Intake | `INTAKE_ENABLED=true` | New reports receive the generic unavailable response and are not persisted. |
 | Public map | `PUBLIC_MAP_ENABLED=true`, valid H3 resolution, 2–3 approved zones | `GET /v1/cells` returns an empty list. |
 | Telegram dispatch | `ALERT_DISPATCH_ENABLED=true` plus both Telegram secrets | Pending and retryable intents are cancelled; accepted reports remain independent of provider delivery. |
-| Retention | `RETENTION_WORKER_ENABLED=true` | Cleanup runs immediately at startup, then every hour; keep it enabled after data collection begins. |
+| Retention | `RETENTION_WORKER_ENABLED=true` | Cleanup runs at the next midnight in Lima, then daily; keep it enabled after data collection begins. |
 
 The outbox creates one durable opening intent per episode transition and retries Telegram failures with bounded exponential backoff. Delivery is **at least once**; an external provider can still receive a duplicate, so do not claim exactly-once delivery.
+
+### Background workers
+
+The API process starts three workers. Each re-arms only after its previous cycle settles, so a slow cycle never overlaps itself, and a failed cycle is retried on the next tick instead of ending the worker.
+
+| Worker | Starts when | Cycle |
+|---|---|---|
+| Alert dispatch | always | Claims due intents and delivers them while `ALERT_DISPATCH_ENABLED=true`; cancels pending and retryable intents while it is not. |
+| Episode expiry | always | Closes episodes whose lifetime elapsed. Public reads already hide them by expiry, so this only materialises that closure. |
+| Retention cleanup | `RETENTION_WORKER_ENABLED=true` | Deletes records past their retention window. |
+
+> **Enable dispatch before intake.** The dispatch worker runs continuously and its disabled branch cancels pending intents. If intake is enabled first, every episode that opens before dispatch is enabled has its alert cancelled within one cycle, and that alert is not recoverable.
 
 ## Privacy and retention
 
 - Coordinates are used to derive an H3 cell and must never be persisted or logged.
 - Optional display names are erased after 24 hours.
-- Immutable report events are deleted after 7 days.
+- Immutable report events stop contributing to the public map after 48 hours and are physically deleted by the next midnight cleanup.
 - Abuse, idempotency, and alert records are deleted after 30 days.
 - Public cells expose only H3 cell and service, never device tokens, display names, coordinates, or event timestamps.
 
@@ -83,7 +132,7 @@ The confirmation value is intentionally exact. Do not run this command in a shel
 ### Rollout checklist
 
 1. Apply reviewed SQL migrations through the deployment platform.
-2. Create and approve exactly two or three pilot zones, set a valid H3 resolution, and provide `DEVICE_TOKEN_SECRET` plus Telegram secrets.
+2. Create and approve two or more pilot zones, set a valid H3 resolution, and provide `DEVICE_TOKEN_SECRET` plus Telegram secrets.
 3. Deploy with every product gate disabled; run the commands in [Release evidence](#release-evidence).
 4. Enable the public map, then intake, then dispatch. Monitor retryable alerts and retention cleanup.
 

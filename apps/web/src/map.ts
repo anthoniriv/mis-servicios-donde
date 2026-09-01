@@ -1,0 +1,304 @@
+import { areNeighborCells, cellToLatLng, getResolution, isValidCell, latLngToCell } from 'h3-js';
+
+export type Service = 'water' | 'electricity' | 'internet';
+export type Provider = 'sedapal' | 'luz_del_sur' | 'pluz' | 'movistar' | 'claro' | 'win' | 'wow' | 'mifibra' | 'other';
+
+export interface ProviderOption {
+  id: Provider;
+  label: string;
+}
+
+export interface PublicCell {
+  h3Cell: string;
+  service: Service;
+  provider: Provider;
+  confirmed: boolean;
+  /** Distinct neighbours, top-coded to 3 so a quorum is "3+" without a precise count. */
+  reports: number;
+}
+
+export interface CellBlob {
+  service: Service;
+  provider: Provider;
+  /** H3 cells that form one contiguous affected area for this service/provider. */
+  h3Cells: string[];
+  centre: [number, number];
+  /** Privacy-safe visual area covering contiguous H3 cells, regardless of confirmation state. */
+  radiusMetres: number;
+  confirmed: boolean;
+  reports: number;
+}
+
+export interface ServiceStyle {
+  /** Text colour: darkened so it clears 4.5:1 on the pale ground. */
+  ink: string;
+  stroke: string;
+  fill: string;
+  label: string;
+}
+
+const supportedServices = new Set<string>(['water', 'electricity', 'internet']);
+
+export const serviceStyles: Record<Service, ServiceStyle> = {
+  water: { ink: '#0A6C9C', stroke: '#0A6C9C', fill: '#2C9FDA', label: 'Agua' },
+  electricity: { ink: '#8A5A00', stroke: '#B47A00', fill: '#F0A81E', label: 'Luz' },
+  internet: { ink: '#68399F', stroke: '#68399F', fill: '#9760D8', label: 'Internet' },
+};
+
+/** Lima provider catalog. "Other / I don't know" keeps reporting inclusive. */
+export const providerOptions: Record<Service, ProviderOption[]> = {
+  water: [
+    { id: 'sedapal', label: 'Sedapal' },
+    { id: 'other', label: 'Otra / No sé' },
+  ],
+  electricity: [
+    { id: 'luz_del_sur', label: 'Luz del Sur' },
+    { id: 'pluz', label: 'Pluz Energía' },
+    { id: 'other', label: 'Otra / No sé' },
+  ],
+  internet: [
+    { id: 'movistar', label: 'Movistar' },
+    { id: 'claro', label: 'Claro' },
+    { id: 'win', label: 'Win' },
+    { id: 'wow', label: 'Wow' },
+    { id: 'mifibra', label: 'MiFibra' },
+    { id: 'other', label: 'Otra / No sé' },
+  ],
+};
+
+/** Lima Metropolitana, the pilot area, shown until reported cells arrive. */
+export const defaultCenter: [number, number] = [-12.0464, -77.0428];
+export const defaultZoom = 13;
+
+export const basemap = {
+  url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  attribution: '&copy; colaboradores de <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  maxZoom: 18,
+};
+
+export const loadingMessage = 'Cargando cortes…';
+
+export function isPublicCell(value: unknown): value is PublicCell {
+  if (typeof value !== 'object' || value === null) return false;
+  const cell = value as Record<string, unknown>;
+  return (
+    typeof cell.h3Cell === 'string' &&
+    typeof cell.service === 'string' &&
+    supportedServices.has(cell.service) &&
+    typeof cell.provider === 'string' &&
+    isProviderForService(cell.service as Service, cell.provider) &&
+    typeof cell.confirmed === 'boolean' &&
+    typeof cell.reports === 'number'
+  );
+}
+
+/** Projects to the public fields only, so nothing else the API sends is ever held. */
+export function toPublicCells(value: unknown): PublicCell[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isPublicCell).map((cell) => ({ h3Cell: cell.h3Cell, service: cell.service, provider: cell.provider, confirmed: cell.confirmed, reports: cell.reports }));
+}
+
+export function providerLabel(provider: Provider): string {
+  for (const options of Object.values(providerOptions)) {
+    const option = options.find((entry) => entry.id === provider);
+    if (option) return option.label;
+  }
+  return 'Otra / No sé';
+}
+
+export function isProviderForService(service: Service, provider: string): provider is Provider {
+  return providerOptions[service].some((option) => option.id === provider);
+}
+
+// One report should stay local on the map. The area grows only when another
+// report lands in an adjacent H3 cell for the same service and provider.
+const cellFootprintRadiusMetres = 120;
+
+/**
+ * H3 stays internal: adjacent cells for one service/provider become one soft
+ * area, never a drawn hexagon. A report in the same cell increases confidence;
+ * a report in an adjacent cell expands the geographic footprint.
+ */
+export function toCellBlobs(cells: PublicCell[]): CellBlob[] {
+  const valid = cells.flatMap((cell) => {
+    const centre = cellCenter(cell.h3Cell);
+    return centre ? [{ cell, centre }] : [];
+  });
+  const visited = new Set<number>();
+  const blobs: CellBlob[] = [];
+
+  for (let index = 0; index < valid.length; index += 1) {
+    if (visited.has(index)) continue;
+    const cluster: typeof valid = [];
+    const pending = [index];
+    visited.add(index);
+
+    while (pending.length > 0) {
+      const current = pending.shift();
+      if (current === undefined) continue;
+      const entry = valid[current];
+      if (!entry) continue;
+      cluster.push(entry);
+
+      for (let candidate = 0; candidate < valid.length; candidate += 1) {
+        if (visited.has(candidate)) continue;
+        const other = valid[candidate];
+        if (!other || other.cell.service !== entry.cell.service || other.cell.provider !== entry.cell.provider || !cellsTouch(entry.cell.h3Cell, other.cell.h3Cell)) continue;
+        visited.add(candidate);
+        pending.push(candidate);
+      }
+    }
+
+    const centre = averageCentre(cluster.map((entry) => entry.centre));
+    const radiusMetres = Math.max(
+      cellFootprintRadiusMetres,
+      ...cluster.map((entry) => distanceMetres(centre, entry.centre) + cellFootprintRadiusMetres),
+    );
+    blobs.push({
+      service: cluster[0].cell.service,
+      provider: cluster[0].cell.provider,
+      h3Cells: cluster.map((entry) => entry.cell.h3Cell),
+      centre,
+      radiusMetres,
+      confirmed: cluster.every((entry) => entry.cell.confirmed),
+      reports: cluster.reduce((total, entry) => total + entry.cell.reports, 0),
+    });
+  }
+
+  return blobs;
+}
+
+function cellsTouch(first: string, second: string): boolean {
+  if (first === second) return true;
+  try {
+    return areNeighborCells(first, second);
+  } catch {
+    return false;
+  }
+}
+
+function averageCentre(centres: [number, number][]): [number, number] {
+  const latitude = centres.reduce((total, [value]) => total + value, 0) / centres.length;
+  const longitude = centres.reduce((total, [, value]) => total + value, 0) / centres.length;
+  return [latitude, longitude];
+}
+
+export function boundsOf(blobs: CellBlob[]): [[number, number], [number, number]] | undefined {
+  if (blobs.length === 0) return undefined;
+  const latitudes = blobs.flatMap((blob) => {
+    const delta = (blob.radiusMetres / earthRadiusMetres) * (180 / Math.PI);
+    return [blob.centre[0] - delta, blob.centre[0] + delta];
+  });
+  const longitudes = blobs.flatMap((blob) => {
+    const delta = (blob.radiusMetres / (earthRadiusMetres * Math.cos((blob.centre[0] * Math.PI) / 180))) * (180 / Math.PI);
+    return [blob.centre[1] - delta, blob.centre[1] + delta];
+  });
+  return [
+    [Math.min(...latitudes), Math.min(...longitudes)],
+    [Math.max(...latitudes), Math.max(...longitudes)],
+  ];
+}
+
+export function describeCell(service: Service, confirmed: boolean): string {
+  const kind = serviceStyles[service].label.toLowerCase();
+  return confirmed ? `Corte de ${kind} en una zona cercana` : `Posible corte de ${kind} reportado por un vecino`;
+}
+
+export function summarizeCells(confirmed: number, pending: number): string {
+  if (confirmed === 0 && pending === 0) return 'No hay cortes reportados en este momento.';
+  const parts: string[] = [];
+  if (confirmed > 0) parts.push(`${confirmed} confirmado${confirmed === 1 ? '' : 's'}`);
+  if (pending > 0) parts.push(`${pending} sin confirmar`);
+  return `${parts.join(' · ')}.`;
+}
+
+export function cellCenter(h3Cell: string): [number, number] | undefined {
+  return isValidCell(h3Cell) ? cellToLatLng(h3Cell) : undefined;
+}
+
+/** Checks the visitor's position locally without sending it to the API. */
+export function cellContainsPosition(h3Cell: string, position: [number, number]): boolean {
+  return isValidCell(h3Cell) && latLngToCell(position[0], position[1], getResolution(h3Cell)) === h3Cell;
+}
+
+const earthRadiusMetres = 6_371_000;
+
+export function distanceMetres(from: [number, number], to: [number, number]): number {
+  const toRadians = (degrees: number): number => (degrees * Math.PI) / 180;
+  const [fromLat, fromLng] = from;
+  const [toLat, toLng] = to;
+  const deltaLat = toRadians(toLat - fromLat);
+  const deltaLng = toRadians(toLng - fromLng);
+  const a = Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(toRadians(fromLat)) * Math.cos(toRadians(toLat)) * Math.sin(deltaLng / 2) ** 2;
+  return 2 * earthRadiusMetres * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/** Reads the way a neighbour says it: metres up close, one decimal past a kilometre. */
+export function formatDistance(metres: number): string {
+  if (metres < 950) return `a ${(Math.round(metres / 10) * 10).toString()} m`;
+  return `a ${(metres / 1000).toFixed(1).replace('.', ',')} km`;
+}
+
+export interface NearbyCell extends PublicCell {
+  metres?: number;
+}
+
+export interface ZoneBoundary {
+  minLatitude: number;
+  maxLatitude: number;
+  minLongitude: number;
+  maxLongitude: number;
+}
+
+export interface ZoneSummary {
+  slug: string;
+  name: string;
+  boundary: ZoneBoundary;
+}
+
+/** A district box as a Leaflet-ready south-west / north-east pair. */
+export function zoneBounds(boundary: ZoneBoundary): [[number, number], [number, number]] {
+  return [
+    [boundary.minLatitude, boundary.minLongitude],
+    [boundary.maxLatitude, boundary.maxLongitude],
+  ];
+}
+
+export function boundaryContains(boundary: ZoneBoundary, latitude: number, longitude: number): boolean {
+  return latitude >= boundary.minLatitude && latitude <= boundary.maxLatitude && longitude >= boundary.minLongitude && longitude <= boundary.maxLongitude;
+}
+
+export function cellInZone(h3Cell: string, boundary: ZoneBoundary): boolean {
+  const centre = cellCenter(h3Cell);
+  return centre ? boundaryContains(boundary, centre[0], centre[1]) : false;
+}
+
+/**
+ * Sorting happens here, in the browser, from a position the API never receives.
+ * Confirmed cells read before pending ones with the same distance: a quorum is
+ * more trustworthy than a lone report.
+ */
+export function sortByProximity(cells: PublicCell[], origin?: [number, number]): NearbyCell[] {
+  const order: Service[] = ['water', 'electricity', 'internet'];
+  const withDistance = cells.map((cell) => ({ ...cell, metres: origin ? measure(cell.h3Cell, origin) : undefined }));
+  return withDistance.sort((a, b) => {
+    if (a.metres !== undefined && b.metres !== undefined && a.metres !== b.metres) return a.metres - b.metres;
+    if (a.confirmed !== b.confirmed) return a.confirmed ? -1 : 1;
+    return order.indexOf(a.service) - order.indexOf(b.service);
+  });
+}
+
+function measure(h3Cell: string, origin: [number, number]): number | undefined {
+  const centre = cellCenter(h3Cell);
+  return centre ? distanceMetres(origin, centre) : undefined;
+}
+
+/** The one line worth reading before anything is expanded. */
+export function leadAnswer(cells: NearbyCell[]): string {
+  const [first] = cells;
+  if (!first) return 'Ningún corte reportado ahora.';
+  const label = serviceStyles[first.service].label;
+  if (first.metres === undefined) return `${cells.length} reportes en la zona piloto.`;
+  return `Lo más cerca: ${label} ${formatDistance(first.metres)}`;
+}

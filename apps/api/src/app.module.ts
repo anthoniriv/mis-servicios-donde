@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AlertsService } from './alerts/alerts.service.js';
+import { DatabasePool } from './database/database.pool.js';
 import { ConsensusService } from './consensus/consensus.service.js';
 import { NoticesController } from './notices/notices.controller.js';
 import { NoticesService } from './notices/notices.service.js';
@@ -14,6 +15,6 @@ import { RetentionService } from './retention/retention.service.js';
 
 @Module({
   controllers: [AppController, ReportsController, PublicCellsController, NoticesController],
-  providers: [AppService, ReportsService, ConsensusService, PublicCellsService, AlertsService, NoticesService, RetentionService],
+  providers: [DatabasePool, AppService, ReportsService, ConsensusService, PublicCellsService, AlertsService, NoticesService, RetentionService],
 })
 export class AppModule {}

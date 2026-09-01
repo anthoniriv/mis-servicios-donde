@@ -3,47 +3,853 @@ import { siteNotice } from '../content.js';
 ---
 
 <!doctype html>
-<html lang="en">
-  <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width" /><title>Mis Servicios | Community outage reports</title></head>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#EFF2EC" />
+    <meta name="description" content="Mapa comunitario de cortes de agua, luz e internet en Lima. Información generada por vecinos, no oficial." />
+    <title>Mis Servicios | Mapa comunitario de cortes</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@600;700&family=Nunito:wght@400;600;800&display=swap" />
+  </head>
   <body>
-    <main>
-      <header><p class="product-name">Mis Servicios</p><h1>Community outage map</h1><p class="intro">See confirmed reports from this pilot. Share what you are seeing to help your neighbors get a clearer picture.</p></header>
-      <p class="notice" role="note">{siteNotice} Community-generated information is unofficial and not provider-confirmed.</p>
-      <section class="map-panel" aria-labelledby="map-heading" data-island="outage-map">
-        <div class="section-heading"><div><h2 id="map-heading">Confirmed conditions</h2><p>Only community reports with enough independent confirmation appear here.</p></div><label><span>Show service</span><select id="service-filter" name="service"><option value="all">All services</option><option value="water">Water</option><option value="electricity">Electricity</option><option value="internet">Internet</option></select></label></div>
-        <div id="map-state" role="status" aria-live="polite">No confirmed outages are available right now.</div><ul id="cell-list" aria-label="Confirmed outage cells"></ul>
-      </section>
-      <section class="report-panel" aria-labelledby="report-heading" data-island="report-form">
-        <div><h2 id="report-heading">Report a service condition</h2><p>Your precise location is used once to group the report into a broad area. It is not stored or shown publicly.</p></div>
-        <form id="report-form" novalidate>
-          <fieldset><legend>Affected services</legend><label><input type="checkbox" name="services" value="water" /> Water</label><label><input type="checkbox" name="services" value="electricity" /> Electricity</label><label><input type="checkbox" name="services" value="internet" /> Internet</label></fieldset>
-          <fieldset><legend>What is happening?</legend><label><input type="radio" name="status" value="outage" checked /> Service is unavailable</label><label><input type="radio" name="status" value="restored" /> Service is restored</label></fieldset>
-          <button type="submit">Send report</button><p id="report-state" role="alert" aria-live="assertive"></p>
-        </form>
-      </section>
-    </main>
+    <!--
+      THESIS: A gravity-rain garden, not a status dashboard. Each service falls its
+      own way because that is physically true: water drains, current climbs, data
+      orbits and never lands. Refuses the dark ops-console grid this category ships.
+      OWN-WORLD: Dusk green-gray ground; cyan, amber and violet rains as the only
+      accents; dashed directional trajectories with arrowheads; rounded sans; the
+      legend plate is the one element always held level.
+      STORY: A neighbour in the dark asks "is it only my house?", reads the nearest
+      confirmed cut in seconds, and adds their own report.
+      FIRST VIEWPORT: Map full-bleed as the garden. Floating unofficial plate top.
+      Rail left on desktop, draggable sheet on mobile: question, level legend,
+      nearest cuts by distance, report action within thumb reach.
+      FORM: gravity-rain garden, candidate 6 of the dealt hand, seed key 092b6402.
+      FINISH: unreviewed and undocumented is unfinished; this build ends with the
+      finish review, the verdict, DESIGN.md, and every shipping raster carrying its
+      provenance.
+    -->
+    <div class="garden">
+      <div id="outage-map" aria-label="Mapa de zonas con cortes confirmados. Los mismos cortes aparecen como texto en el panel."></div>
+    </div>
+
+    <header class="plate">
+      <p class="wordmark">Mis Servicios</p>
+      <p class="unofficial" role="note">{siteNotice} No es un canal oficial de Sedapal, Luz del Sur ni de ningún proveedor.</p>
+    </header>
+
+    <aside class="rail" id="rail" data-state="peek">
+      <button type="button" class="grip" id="grip" aria-expanded="false" aria-controls="rail-body">
+        <span class="grip-bar" aria-hidden="true"></span>
+        <span class="grip-label" id="grip-label">Ver el panel</span>
+      </button>
+      <p class="answer" id="answer">Buscando cortes confirmados…</p>
+
+      <div class="rail-body" id="rail-body">
+        <h1>¿Es solo tu casa?</h1>
+        <p class="lede">Tres vecinos distintos tienen que reportar lo mismo para que un corte quede confirmado. Hasta entonces aparece como "sin confirmar".</p>
+
+        <ul id="map-legend" class="legend"></ul>
+
+        <section class="panel" aria-labelledby="near-heading">
+          <h2 id="near-heading">Cortes cerca tuyo</h2>
+          <div class="filters">
+            <label class="filter">
+              <span>Ver distrito</span>
+              <select id="district-filter" name="district">
+                <option value="all">Todos</option>
+              </select>
+            </label>
+            <label class="filter">
+              <span>Ver servicio</span>
+              <select id="service-filter" name="service">
+                <option value="all">Todos</option>
+                <option value="water">Agua</option>
+                <option value="electricity">Luz</option>
+                <option value="internet">Internet</option>
+              </select>
+            </label>
+            <label class="filter">
+              <span>Ver empresa</span>
+              <select id="provider-filter" name="provider">
+                <option value="all">Todas</option>
+              </select>
+            </label>
+          </div>
+          <div id="map-state" role="status" aria-live="polite">No hay cortes confirmados en este momento.</div>
+          <ul id="cell-list" aria-label="Cortes confirmados por zona"></ul>
+          <button type="button" class="locate" id="locate" hidden>Activar mi ubicación</button>
+        </section>
+
+        <section class="panel" aria-labelledby="report-heading">
+          <h2 id="report-heading">Reportar un corte</h2>
+          <p class="fine">Tu ubicación exacta se usa una sola vez para agrupar el reporte en una zona amplia. No se guarda ni se muestra.</p>
+          <form id="report-form" novalidate>
+            <fieldset>
+              <legend>¿Qué servicio?</legend>
+              <div class="choices">
+                <label><input type="checkbox" name="services" value="water" /> <span>Agua</span></label>
+                <label><input type="checkbox" name="services" value="electricity" /> <span>Luz</span></label>
+                <label><input type="checkbox" name="services" value="internet" /> <span>Internet</span></label>
+              </div>
+            </fieldset>
+            <div id="provider-fields" class="provider-fields" hidden></div>
+            <fieldset>
+              <legend>¿Qué está pasando?</legend>
+              <div class="choices">
+                <label><input type="radio" name="status" value="outage" checked /> <span>No hay servicio</span></label>
+                <label><input type="radio" name="status" value="restored" /> <span>Ya volvió</span></label>
+              </div>
+            </fieldset>
+            <button type="submit" id="submit">Enviar reporte</button>
+            <p id="report-state" role="alert" aria-live="assertive"></p>
+          </form>
+        </section>
+      </div>
+    </aside>
+
+    <dialog id="thanks" aria-labelledby="thanks-title">
+      <h2 id="thanks-title">¡Gracias por tu reporte!</h2>
+      <p>Tu reporte ya está ayudando a tu comunidad. Aparecerá en el mapa como "sin confirmar" hasta que otros vecinos reporten lo mismo.</p>
+      <button type="button" id="thanks-close">Entendido</button>
+    </dialog>
+
+    <dialog id="cell-info" aria-labelledby="cell-info-title">
+      <h2 id="cell-info-title">Cortes en esta zona</h2>
+      <ul id="cell-info-list" class="cell-info-list"></ul>
+      <div id="cell-info-streets" class="cell-info-streets" role="status" aria-live="polite" hidden></div>
+      <button type="button" id="cell-info-close">Cerrar</button>
+    </dialog>
+
     <script>
-      const filter = document.querySelector('#service-filter'); const mapState = document.querySelector('#map-state'); const cellList = document.querySelector('#cell-list'); const reportForm = document.querySelector('#report-form'); const reportState = document.querySelector('#report-state'); const deviceId = crypto.randomUUID();
-      async function loadCells() {
-        if (!(filter instanceof HTMLSelectElement) || !(mapState instanceof HTMLElement) || !(cellList instanceof HTMLUListElement)) return;
-        const suffix = filter.value === 'all' ? '' : `?service=${encodeURIComponent(filter.value)}`; mapState.textContent = 'Loading confirmed conditions…'; cellList.replaceChildren();
-        try { const response = await fetch(`/v1/cells${suffix}`); const cells = response.ok ? await response.json() : [];
-          if (!Array.isArray(cells) || cells.length === 0) { mapState.textContent = 'No confirmed outages are available right now.'; return; }
-          mapState.textContent = `${cells.length} confirmed condition${cells.length === 1 ? '' : 's'} available.`;
-          for (const cell of cells) { if (typeof cell?.h3Cell !== 'string' || typeof cell?.service !== 'string') continue; const item = document.createElement('li'); item.textContent = `${cell.service} condition in a nearby area`; cellList.append(item); }
-        } catch { mapState.textContent = 'No confirmed outages are available right now.'; }
+      import L from 'leaflet';
+      import 'leaflet/dist/leaflet.css';
+      import {
+        basemap, boundaryContains, boundsOf, cellCenter, cellContainsPosition, cellInZone, defaultCenter, defaultZoom, describeCell, formatDistance,
+        leadAnswer, loadingMessage, providerLabel, providerOptions, serviceStyles, sortByProximity, summarizeCells, toCellBlobs, toPublicCells, zoneBounds,
+        type NearbyCell, type Provider, type PublicCell, type Service, type ZoneSummary,
+      } from '../map.js';
+
+      const $ = <T extends Element>(selector: string): T | null => document.querySelector<T>(selector);
+      const districtFilter = $<HTMLSelectElement>('#district-filter');
+      const filter = $<HTMLSelectElement>('#service-filter');
+      const providerFilter = $<HTMLSelectElement>('#provider-filter');
+      const mapState = $<HTMLElement>('#map-state');
+      const cellList = $<HTMLUListElement>('#cell-list');
+      const legend = $<HTMLUListElement>('#map-legend');
+      const reportForm = $<HTMLFormElement>('#report-form');
+      const reportState = $<HTMLElement>('#report-state');
+      const locate = $<HTMLButtonElement>('#locate');
+      const rail = $<HTMLElement>('#rail');
+      const grip = $<HTMLButtonElement>('#grip');
+      const gripLabel = $<HTMLElement>('#grip-label');
+      const answer = $<HTMLElement>('#answer');
+      const thanks = $<HTMLDialogElement>('#thanks');
+      const thanksClose = $<HTMLButtonElement>('#thanks-close');
+      const cellInfo = $<HTMLDialogElement>('#cell-info');
+      const cellInfoList = $<HTMLUListElement>('#cell-info-list');
+      const cellInfoStreets = $<HTMLElement>('#cell-info-streets');
+      const cellInfoClose = $<HTMLButtonElement>('#cell-info-close');
+      const providerFields = $<HTMLDivElement>('#provider-fields');
+      const deviceId = (() => {
+        const key = 'mis-servicios:device-id';
+        const existing = localStorage.getItem(key);
+        if (existing) return existing;
+        const fresh = crypto.randomUUID();
+        localStorage.setItem(key, fresh);
+        return fresh;
+      })();
+
+      let map: L.Map | undefined;
+      let cellLayer: L.LayerGroup | undefined;
+      let origin: [number, number] | undefined;
+      let meMarker: L.Marker | undefined;
+      let zones: ZoneSummary[] = [];
+      let myDistrictSlug: string | undefined;
+      let painted: NearbyCell[] = [];
+      let fetchedCells: PublicCell[] = [];
+
+      const icons: Record<Service, string> = {
+        water: '<path d="M12 3.5c3.4 4 5.2 6.6 5.2 8.9a5.2 5.2 0 0 1-10.4 0c0-2.3 1.8-4.9 5.2-8.9Z"/>',
+        electricity: '<path d="M13.4 3 6.8 13.1h4.2L10.2 21l6.9-10.4h-4.3L13.4 3Z"/>',
+        internet: '<circle cx="12" cy="12" r="3.1"/><ellipse cx="12" cy="12" rx="9" ry="4.4" transform="rotate(-24 12 12)"/>',
+      };
+
+      function icon(service: Service): string {
+        return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[service]}</svg>`;
       }
-      filter?.addEventListener('change', loadCells); void loadCells();
-      reportForm?.addEventListener('submit', (event) => { event.preventDefault(); if (!(reportForm instanceof HTMLFormElement) || !(reportState instanceof HTMLElement)) return;
-        const services = Array.from(reportForm.querySelectorAll<HTMLInputElement>('input[name="services"]:checked')).map((input) => input.value);
-        if (services.length === 0) { reportState.textContent = 'Choose at least one affected service.'; return; }
-        if (!navigator.geolocation) { reportState.textContent = 'Location is unavailable. Try again from a browser that allows location access.'; return; }
-        reportState.textContent = 'Requesting your location…'; navigator.geolocation.getCurrentPosition(async (position) => { const status = reportForm.querySelector<HTMLInputElement>('input[name="status"]:checked')?.value; const response = await fetch('/v1/reports', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ submissionId: crypto.randomUUID(), deviceId, services, status, latitude: position.coords.latitude, longitude: position.coords.longitude }) }); reportState.textContent = response.ok ? 'Report received. Thank you for helping your community.' : 'Unable to send your report right now. Please try again later.'; }, () => { reportState.textContent = 'Location access is needed to group your report into a broad area.'; });
+
+      /** Always offered, not only after a denial: "where am I" is the second question. */
+      function addLocateControl(instance: L.Map): void {
+        const Locate = L.Control.extend({
+          onAdd(): HTMLElement {
+            const button = L.DomUtil.create('button', 'locate-control');
+            button.type = 'button';
+            button.title = 'Centrar en mi ubicación';
+            button.setAttribute('aria-label', 'Centrar en mi ubicación');
+            button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.4"/><path d="M12 2.6v3M12 18.4v3M2.6 12h3M18.4 12h3"/></svg>';
+            L.DomEvent.on(button, 'click', (event) => { L.DomEvent.stop(event); centreOnMe(); });
+            return button;
+          },
+        });
+        new Locate({ position: 'topright' }).addTo(instance);
+      }
+
+      /** Marks the visitor with a div, never a vector: the overlay pane counts hexagons. */
+      function markMe(): void {
+        if (!map || !origin) return;
+        const icon = L.divIcon({ className: 'me', html: '<span></span>', iconSize: [18, 18] });
+        if (meMarker) meMarker.setLatLng(origin);
+        else meMarker = L.marker(origin, { icon, keyboard: false, interactive: false, zIndexOffset: -100 }).addTo(map);
+      }
+
+      function centreOnMe(): void {
+        if (origin && map) {
+          if (myDistrictSlug && districtFilter) districtFilter.value = myDistrictSlug;
+          // Re-centering is a personal action: fitting the whole district makes
+          // the visitor's own position look remote again.
+          map.flyTo(origin, Math.max(map.getZoom(), 16), { animate: true, duration: .45 });
+          return;
+        }
+        askPosition();
+      }
+
+      /** A tile or WebGL failure must never take the textual panel down with it. */
+      function startMap(): void {
+        const host = $<HTMLElement>('#outage-map');
+        if (!host) return;
+        try {
+          map = L.map(host, { scrollWheelZoom: true, zoomControl: false, attributionControl: true })
+            .setView(defaultCenter, defaultZoom);
+          L.control.zoom({ position: 'topright' }).addTo(map);
+          addLocateControl(map);
+          L.tileLayer(basemap.url, { attribution: basemap.attribution, maxZoom: basemap.maxZoom }).addTo(map);
+          cellLayer = L.layerGroup().addTo(map);
+        } catch { map = undefined; cellLayer = undefined; }
+      }
+
+      function renderLegend(): void {
+        if (!legend) return;
+        legend.replaceChildren();
+        for (const [name, style] of Object.entries(serviceStyles) as [Service, typeof serviceStyles.water][]) {
+          const item = document.createElement('li');
+          item.style.setProperty('--ink', style.fill);
+          item.innerHTML = `${icon(name)}<b>${style.label}</b>`;
+          legend.append(item);
+        }
+      }
+
+      function renderProviderFields(): void {
+        if (!providerFields || !reportForm) return;
+        const previous = new Map(Array.from(providerFields.querySelectorAll<HTMLSelectElement>('select[data-service-provider]')).map((select) => [select.dataset.serviceProvider, select.value]));
+        const services = Array.from(reportForm.querySelectorAll<HTMLInputElement>('input[name="services"]:checked')).map((input) => input.value as Service);
+        providerFields.replaceChildren();
+        providerFields.hidden = services.length === 0;
+        for (const service of services) {
+          const label = document.createElement('label');
+          label.className = 'provider-field';
+          const text = document.createElement('span');
+          text.textContent = `Empresa de ${serviceStyles[service].label.toLowerCase()}`;
+          const select = document.createElement('select');
+          select.required = true;
+          select.dataset.serviceProvider = service;
+          select.setAttribute('aria-label', text.textContent);
+          const placeholder = document.createElement('option');
+          placeholder.value = '';
+          placeholder.textContent = 'Selecciona una empresa';
+          select.append(placeholder);
+          for (const option of providerOptions[service]) {
+            const item = document.createElement('option');
+            item.value = option.id;
+            item.textContent = option.label;
+            select.append(item);
+          }
+          const retained = previous.get(service);
+          if (retained && providerOptions[service].some((option) => option.id === retained)) select.value = retained;
+          label.append(text, select);
+          providerFields.append(label);
+        }
+      }
+
+      function populateProviderFilter(): void {
+        if (!providerFilter) return;
+        const selectedService = filter?.value ?? 'all';
+        const options = selectedService === 'all'
+          ? Object.values(providerOptions).flat()
+          : providerOptions[selectedService as Service];
+        const unique = new Map(options.map((option) => [option.id, option]));
+        const previous = providerFilter.value;
+        providerFilter.replaceChildren(new Option('Todas', 'all'));
+        for (const option of unique.values()) providerFilter.append(new Option(option.label, option.id));
+        providerFilter.value = unique.has(previous as Provider) ? previous : 'all';
+      }
+
+      function renderCells(cells: NearbyCell[]): void {
+        painted = cells;
+        if (!map || !cellLayer) return;
+        cellLayer.clearLayers();
+        for (const blob of toCellBlobs(cells)) {
+          const style = serviceStyles[blob.service];
+          // The API gives us the H3 cell, not the private report coordinate.
+          // For the visitor's own cell, local positioning removes the visual
+          // gap without transmitting or storing the precise location.
+          const centre = origin && blob.h3Cells.length === 1 && cellContainsPosition(blob.h3Cells[0], origin) ? origin : blob.centre;
+          const circle = L.circle(centre, {
+            radius: blob.radiusMetres,
+            color: style.stroke,
+            weight: blob.confirmed ? 2.5 : 2,
+            dashArray: blob.confirmed ? undefined : '5 5',
+            fillColor: style.fill,
+            fillOpacity: blob.confirmed ? .2 : .12,
+            className: 'cell',
+          });
+          circle.on('click', () => openCellInfo(blob.h3Cells, blob.service));
+          circle.addTo(cellLayer);
+        }
+        markMe();
+      }
+
+      function openCellInfo(h3Cells: string[], service?: Service): void {
+        const group = painted.filter((cell) => h3Cells.includes(cell.h3Cell));
+        const geometry = service ? group.filter((cell) => cell.service === service) : group;
+        const [blob] = toCellBlobs(geometry);
+        if (group.length === 0 || !blob) return;
+        showCellInfo(group, blob.centre, blob.radiusMetres);
+      }
+
+      function showCellInfo(group: NearbyCell[], centre: [number, number], radiusMetres: number): void {
+        if (!cellInfo || !cellInfoList || !cellInfoStreets) return;
+        cellInfoList.replaceChildren();
+        for (const cell of group) {
+          const style = serviceStyles[cell.service];
+          const item = document.createElement('li');
+          item.style.setProperty('--ink', style.fill);
+          const neighbours = `${cell.reports} vecino${cell.reports === 1 ? '' : 's'}`;
+          const state = cell.confirmed ? 'confirmado' : 'sin confirmar';
+          item.innerHTML = `${icon(cell.service)}<span>${style.label}<small>${providerLabel(cell.provider)}</small></span><em>${neighbours} · ${state}</em>`;
+          cellInfoList.append(item);
+        }
+        cellInfoStreets.hidden = false;
+        cellInfoStreets.dataset.state = 'loading';
+        cellInfoStreets.textContent = 'Analizando las posibles calles…';
+        void nearbyStreetNames(centre, radiusMetres).then((streets) => {
+          cellInfoStreets.removeAttribute('data-state');
+          cellInfoStreets.replaceChildren();
+          if (streets.length === 0) {
+            cellInfoStreets.textContent = 'No pudimos identificar calles cercanas.';
+            return;
+          }
+          const title = document.createElement('strong');
+          title.textContent = 'Posibles calles afectadas';
+          const list = document.createElement('ul');
+          for (const street of streets) {
+            const item = document.createElement('li');
+            item.textContent = street;
+            list.append(item);
+          }
+          cellInfoStreets.append(title, list);
+          cellInfoStreets.hidden = false;
+        });
+        cellInfo.showModal();
+      }
+
+      async function nearbyStreetNames(centre: [number, number], radiusMetres: number): Promise<string[]> {
+        const [latitude, longitude] = centre;
+        const query = `[out:json][timeout:8];way(around:${Math.round(radiusMetres)},${latitude},${longitude})["highway"]["name"];out tags;`;
+        try {
+          const response = await fetch('https://overpass-api.de/api/interpreter', {
+            method: 'POST',
+            headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+            body: new URLSearchParams({ data: query }),
+            signal: AbortSignal.timeout(7_000),
+          });
+          if (!response.ok) throw new Error('street_lookup_failed');
+          const data = await response.json() as { elements?: { tags?: { name?: unknown } }[] };
+          const names = new Map<string, string>();
+          for (const element of data.elements ?? []) {
+            const name = typeof element.tags?.name === 'string' ? element.tags.name.trim() : '';
+            if (name && !names.has(name.toLocaleLowerCase())) names.set(name.toLocaleLowerCase(), name);
+          }
+          return [...names.values()].sort((a, b) => a.localeCompare(b, 'es')).slice(0, 8);
+        } catch {
+          return reverseGeocode(centre);
+        }
+      }
+
+      async function reverseGeocode(centre: [number, number]): Promise<string[]> {
+        try {
+          const [latitude, longitude] = centre;
+          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=16`, { signal: AbortSignal.timeout(5_000) });
+          if (!response.ok) return [];
+          const data = await response.json() as { address?: { road?: string; pedestrian?: string } };
+          const road = data.address?.road ?? data.address?.pedestrian;
+          return road ? [road] : [];
+        } catch { return []; }
+      }
+
+      function renderList(cells: NearbyCell[]): void {
+        if (answer) answer.textContent = leadAnswer(cells);
+        if (!cellList || !mapState) return;
+        cellList.replaceChildren();
+        const confirmedCount = cells.filter((cell) => cell.confirmed).length;
+        const pendingCount = cells.length - confirmedCount;
+        mapState.textContent = summarizeCells(confirmedCount, pendingCount);
+        for (const cell of cells) {
+          const style = serviceStyles[cell.service];
+          const item = document.createElement('li');
+          item.style.setProperty('--ink', style.fill);
+          if (!cell.confirmed) item.classList.add('pending');
+          item.dataset.h3Cell = cell.h3Cell;
+          item.tabIndex = 0;
+          const distance = cell.metres === undefined ? '' : `<em>${formatDistance(cell.metres)}</em>`;
+          item.innerHTML = `${icon(cell.service)}<span>${describeCell(cell.service, cell.confirmed)} · ${providerLabel(cell.provider)}</span>${distance}`;
+          const open = () => {
+            const c = cellCenter(cell.h3Cell);
+            if (c && map) map.setView(c, Math.max(map.getZoom(), 15), { animate: true });
+            openCellInfo([cell.h3Cell]);
+          };
+          item.addEventListener('click', open);
+          item.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
+          cellList.append(item);
+        }
+      }
+
+      async function loadCells(silent = false): Promise<void> {
+        if (!filter || !mapState) return;
+        const suffix = filter.value === 'all' ? '' : `?service=${encodeURIComponent(filter.value)}`;
+        if (!silent) mapState.textContent = loadingMessage;
+        let cells: PublicCell[] = [];
+        try {
+          const response = await fetch(`/v1/cells${suffix}`);
+          cells = response.ok ? toPublicCells(await response.json()) : [];
+        } catch { cells = []; }
+        fetchedCells = cells;
+        render(!silent);
+      }
+
+      function currentDistrict(): string {
+        return districtFilter?.value ?? 'all';
+      }
+
+      function filterByDistrict(cells: NearbyCell[]): NearbyCell[] {
+        const slug = currentDistrict();
+        if (slug === 'all') return cells;
+        const zone = zones.find((entry) => entry.slug === slug);
+        if (!zone) return cells;
+        return cells.filter((cell) => cellInZone(cell.h3Cell, zone.boundary));
+      }
+
+      function filterByProvider(cells: NearbyCell[]): NearbyCell[] {
+        const selected = providerFilter?.value ?? 'all';
+        return selected === 'all' ? cells : cells.filter((cell) => cell.provider === selected);
+      }
+
+      function applyDistrict(): void {
+        if (!map) return;
+        const slug = currentDistrict();
+        const zone = zones.find((entry) => entry.slug === slug);
+        if (zone) {
+          const box = L.latLngBounds(zoneBounds(zone.boundary));
+          if (origin && slug === myDistrictSlug) box.extend(origin);
+          map.fitBounds(box, { padding: [48, 48], maxZoom: 15 });
+          return;
+        }
+        const bounds = boundsOf(toCellBlobs(painted));
+        if (bounds) {
+          const box = L.latLngBounds(bounds);
+          if (origin) box.extend(origin);
+          map.fitBounds(box, { padding: [48, 48], maxZoom: 15 });
+        } else if (origin) map.setView(origin, 15);
+      }
+
+      function render(center = true): void {
+        const ordered = sortByProximity(fetchedCells, origin);
+        const filtered = filterByProvider(filterByDistrict(ordered));
+        renderList(filtered);
+        renderCells(filtered);
+        if (center) applyDistrict();
+      }
+
+      async function loadZones(): Promise<void> {
+        try {
+          const response = await fetch('/v1/zones');
+          if (response.ok) zones = (await response.json()) as ZoneSummary[];
+        } catch { zones = []; }
+        populateDistrictFilter();
+        const here = origin;
+        if (here) {
+          myDistrictSlug = zones.find((zone) => boundaryContains(zone.boundary, here[0], here[1]))?.slug;
+          if (myDistrictSlug && districtFilter && districtFilter.value === 'all') districtFilter.value = myDistrictSlug;
+          render(false);
+          centreOnMe();
+        }
+      }
+
+      function populateDistrictFilter(): void {
+        if (!districtFilter) return;
+        const current = districtFilter.value;
+        districtFilter.replaceChildren();
+        const all = document.createElement('option');
+        all.value = 'all';
+        all.textContent = 'Todos';
+        districtFilter.append(all);
+        for (const zone of zones) {
+          const option = document.createElement('option');
+          option.value = zone.slug;
+          option.textContent = zone.name;
+          districtFilter.append(option);
+        }
+        districtFilter.value = zones.some((entry) => entry.slug === current) ? current : 'all';
+      }
+
+      /**
+       * Denial is a first-class state, never an error: the map stays on the pilot
+       * zone and the panel offers the permission again on the visitor's terms.
+       */
+      function askPosition(): void {
+        if (!navigator.geolocation) { locate?.removeAttribute('hidden'); return; }
+        locate?.setAttribute('data-busy', 'true');
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            origin = [position.coords.latitude, position.coords.longitude];
+            myDistrictSlug = zones.find((zone) => boundaryContains(zone.boundary, position.coords.latitude, position.coords.longitude))?.slug;
+            if (myDistrictSlug && districtFilter) districtFilter.value = myDistrictSlug;
+            locate?.setAttribute('hidden', '');
+            locate?.removeAttribute('data-busy');
+            void loadCells(true).then(centreOnMe);
+          },
+          () => { locate?.removeAttribute('data-busy'); locate?.removeAttribute('hidden'); },
+          { maximumAge: 60_000, timeout: 8_000 },
+        );
+      }
+
+      function setRail(state: 'peek' | 'open'): void {
+        rail?.setAttribute('data-state', state);
+        grip?.setAttribute('aria-expanded', state === 'open' ? 'true' : 'false');
+        if (gripLabel) gripLabel.textContent = state === 'open' ? 'Ocultar el panel' : 'Ver el panel';
+      }
+
+      startMap();
+      renderLegend();
+      populateProviderFilter();
+      renderProviderFields();
+
+      grip?.addEventListener('click', () => setRail(rail?.getAttribute('data-state') === 'open' ? 'peek' : 'open'));
+      locate?.addEventListener('click', askPosition);
+      filter?.addEventListener('change', () => { populateProviderFilter(); void loadCells(); });
+      providerFilter?.addEventListener('change', () => render());
+      districtFilter?.addEventListener('change', () => render());
+      reportForm?.querySelectorAll<HTMLInputElement>('input[name="services"]').forEach((input) => input.addEventListener('change', renderProviderFields));
+      void loadZones();
+      void loadCells();
+      askPosition();
+
+      reportForm?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        if (!reportForm || !reportState) return;
+        const services = Array.from(reportForm.querySelectorAll<HTMLInputElement>('input[name="services"]:checked')).map((input) => input.value as Service);
+        if (services.length === 0) { reportState.dataset.tone = 'warn'; reportState.textContent = 'Elige al menos un servicio afectado.'; return; }
+        const providers = Object.fromEntries(services.map((service) => [service, reportForm.querySelector<HTMLSelectElement>(`select[data-service-provider="${service}"]`)?.value ?? '']));
+        if (Object.values(providers).some((provider) => !provider)) { reportState.dataset.tone = 'warn'; reportState.textContent = 'Selecciona la empresa de cada servicio.'; return; }
+        if (!navigator.geolocation) { reportState.dataset.tone = 'error'; reportState.textContent = 'No podemos obtener tu ubicación. Prueba desde un navegador que permita el acceso.'; return; }
+        reportState.dataset.tone = 'info';
+        reportState.textContent = 'Solicitando tu ubicación…';
+        navigator.geolocation.getCurrentPosition(async (position) => {
+          const status = reportForm.querySelector<HTMLInputElement>('input[name="status"]:checked')?.value;
+          const response = await fetch('/v1/reports', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ submissionId: crypto.randomUUID(), deviceId, services, providers, status, latitude: position.coords.latitude, longitude: position.coords.longitude }),
+          });
+          if (response.ok) {
+            reportState.dataset.tone = 'success';
+            reportState.textContent = '';
+            reportForm.reset();
+            renderProviderFields();
+            thanks?.showModal();
+            void loadCells(true);
+          } else if (response.status === 409) {
+            reportState.dataset.tone = 'warn';
+            reportState.textContent = 'Ya reportaste este corte hace poco. Un reporte por dispositivo alcanza.';
+          } else {
+            reportState.dataset.tone = 'error';
+            reportState.textContent = 'No pudimos enviar tu reporte ahora. Vuelve a intentarlo más tarde.';
+          }
+        }, () => { reportState.dataset.tone = 'error'; reportState.textContent = 'Necesitamos tu ubicación para agrupar el reporte en una zona amplia.'; });
       });
+      thanksClose?.addEventListener('click', () => thanks?.close());
+      cellInfoClose?.addEventListener('click', () => cellInfo?.close());
     </script>
+
+    <style is:global>
+      :root {
+        --ground: #EFF2EC;
+        --surface: #FBFCF9;
+        --ink: #16201A;
+        --muted: #54655B;
+        --line: #D3DCD3;
+        --agua: #0A6C9C;
+        --luz: #8A5A00;
+        --net: #68399F;
+        color-scheme: light;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body { height: 100%; }
+
+      body {
+        margin: 0;
+        background: var(--ground);
+        color: var(--ink);
+        font-family: Nunito, ui-rounded, system-ui, sans-serif;
+        overflow: hidden;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      ::selection { background: #BFE4F6; color: var(--ink); }
+
+      :focus-visible { outline: 2px solid var(--agua); outline-offset: 3px; border-radius: 4px; }
+
+      * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+      *::-webkit-scrollbar { width: 8px; }
+      *::-webkit-scrollbar-thumb { background: var(--line); border-radius: 99px; }
+
+      /* The garden in daylight: the map is the ground, shown as it is. */
+      .garden { position: fixed; inset: 0; }
+      #outage-map { position: absolute; inset: 0; background: var(--ground); }
+      /*
+       * The OSM standard style is a mapper's reference render: it colour-codes road
+       * classes and draws every shop and bus stop so contributors can verify the
+       * database. That is the opposite of a product basemap. Muting the tile pane
+       * only — never the overlay pane — leaves the soft outage blobs at full
+       * strength over a quiet ground.
+       */
+      .leaflet-tile-pane { filter: saturate(.35) brightness(1.06) contrast(.95); }
+      .leaflet-container { background: var(--ground); font-family: inherit; }
+      .cell { filter: drop-shadow(0 1px 5px rgb(22 32 26 / .28)); }
+
+      .leaflet-control-zoom a,
+      .locate-control,
+      .leaflet-control-attribution {
+        background: rgb(251 252 249 / .93); color: var(--ink); border-color: var(--line);
+        backdrop-filter: blur(6px);
+      }
+      .leaflet-control-attribution { color: var(--muted); }
+      .leaflet-control-attribution a { color: var(--agua); }
+      .locate-control {
+        display: grid; place-items: center; width: 34px; height: 34px; margin-top: .5rem;
+        border: 2px solid rgb(22 32 26 / .18); border-radius: 6px; cursor: pointer; color: var(--ink);
+        box-shadow: 0 1px 5px rgb(22 32 26 / .28);
+      }
+      .locate-control:hover { background: #fff; color: var(--agua); }
+      .locate-control svg { width: 19px; height: 19px; }
+      .leaflet-tooltip {
+        background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+        border-radius: 8px; box-shadow: 0 4px 14px rgb(22 32 26 / .18); font-weight: 700;
+      }
+      .leaflet-tooltip-top::before { border-top-color: var(--line); }
+
+      /* You, on the map. A div, never a vector: the overlay pane counts hexagons. */
+      .me span {
+        display: block; width: 14px; height: 14px; margin: 2px; border-radius: 99px;
+        background: var(--agua); border: 3px solid #fff;
+        box-shadow: 0 0 0 1px rgb(10 108 156 / .55), 0 2px 8px rgb(22 32 26 / .38);
+        animation: pulse 2.6s cubic-bezier(.16, 1, .3, 1) infinite;
+      }
+      @keyframes pulse {
+        0%, 70%, 100% { box-shadow: 0 0 0 1px rgb(10 108 156 / .55), 0 2px 8px rgb(22 32 26 / .38); }
+        35% { box-shadow: 0 0 0 9px rgb(10 108 156 / 0), 0 2px 8px rgb(22 32 26 / .38); }
+      }
+
+      /* The unofficial plate: always present, always level, never dismissible. */
+      .plate {
+        position: fixed; inset: .75rem .75rem auto; z-index: 700; max-width: 44rem;
+        display: flex; flex-wrap: wrap; align-items: baseline; gap: .1rem 1rem;
+        padding: .7rem 1rem; border: 1px solid var(--line); border-radius: 14px;
+        background: rgb(251 252 249 / .93); backdrop-filter: blur(10px);
+        box-shadow: 0 6px 22px rgb(22 32 26 / .14);
+      }
+      .wordmark { margin: 0; font-family: Comfortaa, Nunito, sans-serif; font-weight: 700; font-size: 1.05rem; letter-spacing: -.01em; }
+      .unofficial { margin: 0; color: var(--muted); font-size: .74rem; line-height: 1.4; max-width: 62ch; text-wrap: pretty; }
+
+      /* The thank-you modal: a native dialog styled into the daylight world. */
+      #thanks {
+        max-width: 22rem; width: calc(100% - 3rem); margin: auto; padding: 1.4rem 1.5rem;
+        border: 1px solid var(--line); border-radius: 16px;
+        background: var(--surface); color: var(--ink);
+        box-shadow: 0 24px 60px rgb(22 32 26 / .3);
+      }
+      #thanks::backdrop { background: rgb(22 32 26 / .4); backdrop-filter: blur(3px); }
+      #thanks h2 { margin: 0 0 .6rem; font-family: Comfortaa, Nunito, sans-serif; font-size: 1.25rem; letter-spacing: -.02em; }
+      #thanks p { margin: 0 0 1.1rem; color: var(--muted); font-size: .9rem; line-height: 1.55; }
+      #thanks button {
+        width: 100%; padding: .7rem; font: inherit; font-weight: 800; font-size: .92rem;
+        color: #fff; background: var(--ink); border: 0; border-radius: 12px; cursor: pointer;
+      }
+      #thanks button:hover { background: #0B120E; }
+
+      /* The cell-info modal shares the daylight dialog shell. */
+      #cell-info {
+        max-width: 24rem; width: calc(100% - 3rem); margin: auto; padding: 1.4rem 1.5rem;
+        border: 1px solid var(--line); border-radius: 16px;
+        background: var(--surface); color: var(--ink);
+        box-shadow: 0 24px 60px rgb(22 32 26 / .3);
+      }
+      #cell-info::backdrop { background: rgb(22 32 26 / .4); backdrop-filter: blur(3px); }
+      #cell-info h2 { margin: 0 0 .8rem; font-family: Comfortaa, Nunito, sans-serif; font-size: 1.25rem; letter-spacing: -.02em; }
+      #cell-info button {
+        width: 100%; padding: .7rem; font: inherit; font-weight: 800; font-size: .92rem;
+        color: #fff; background: var(--ink); border: 0; border-radius: 12px; cursor: pointer;
+      }
+      #cell-info button:hover { background: #0B120E; }
+      .cell-info-list { margin: 0 0 1rem; padding: 0; list-style: none; display: grid; gap: .4rem; }
+      .cell-info-list li {
+        display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .55rem;
+        padding: .6rem .7rem; border: 1px solid var(--line); border-radius: 11px; background: #fff; font-size: .88rem;
+      }
+      .cell-info-list svg { width: 17px; height: 17px; color: var(--ink); }
+      .cell-info-list li > span { font-weight: 800; }
+      .cell-info-list li > span small { display: block; margin-top: .12rem; color: var(--muted); font-size: .72rem; font-weight: 600; }
+      .cell-info-list em { color: var(--muted); font-style: normal; font-size: .78rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+      .cell-info-streets { margin: 0 0 1rem; color: var(--muted); font-size: .85rem; line-height: 1.5; }
+      .cell-info-streets strong { color: var(--ink); font-weight: 800; }
+      .cell-info-streets ul { margin: .35rem 0 0; padding-left: 1.1rem; }
+      .cell-info-streets li + li { margin-top: .15rem; }
+      .cell-info-streets[data-state='loading'] { color: var(--agua); font-weight: 700; }
+
+      /* Mobile: a sheet that rises from the ground. Desktop: a rail beside it. */
+      .rail {
+        position: fixed; z-index: 600; left: 0; right: 0; bottom: 0;
+        max-height: 86dvh; display: flex; flex-direction: column;
+        border-top: 1px solid var(--line); border-radius: 20px 20px 0 0;
+        background: rgb(251 252 249 / .97); backdrop-filter: blur(14px);
+        box-shadow: 0 -10px 34px rgb(22 32 26 / .16);
+        transition: transform .42s cubic-bezier(.16, 1, .3, 1);
+      }
+      .rail[data-state='peek'] { transform: translateY(calc(100% - 9.6rem)); }
+      .rail[data-state='open'] { transform: translateY(0); }
+
+      .grip {
+        display: grid; justify-items: center; gap: .4rem; width: 100%;
+        padding: .7rem 1rem .3rem; border: 0; background: none; color: var(--muted);
+        font: inherit; font-size: .78rem; cursor: pointer;
+      }
+      .grip-bar { width: 2.4rem; height: 4px; border-radius: 99px; background: var(--line); }
+      .grip:hover { color: var(--ink); }
+
+      .answer {
+        margin: 0; padding: 0 1.15rem .95rem; font-size: 1.02rem; font-weight: 800;
+        letter-spacing: -.01em; text-wrap: balance;
+      }
+
+      .rail-body { overflow-y: auto; padding: .6rem 1.15rem calc(1.4rem + env(safe-area-inset-bottom)); }
+
+      h1 {
+        margin: .1rem 0 .45rem; font-family: Comfortaa, Nunito, sans-serif; font-weight: 700;
+        font-size: clamp(1.6rem, 5.2vw, 2.1rem); line-height: 1.1; letter-spacing: -.02em; text-wrap: balance;
+      }
+      .lede { margin: 0 0 1rem; color: var(--muted); font-size: .9rem; line-height: 1.55; max-width: 46ch; }
+
+      /* The one element held level in every state, including denial and empty. */
+      .legend { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 1.15rem; padding: 0; list-style: none; }
+      .legend li {
+        display: inline-flex; align-items: center; gap: .35rem;
+        padding: .3rem .6rem; border: 1px solid var(--line); border-radius: 99px;
+        background: #fff; color: var(--ink); font-size: .78rem;
+      }
+      .legend svg { width: 15px; height: 15px; color: var(--ink); }
+      .legend b { font-weight: 800; }
+
+      .panel { padding-top: 1.15rem; border-top: 1px solid var(--line); }
+      .panel + .panel { margin-top: 1.15rem; }
+      h2 { margin: 0 0 .55rem; font-size: 1.02rem; font-weight: 800; letter-spacing: -.01em; }
+      .fine { margin: 0 0 .9rem; color: var(--muted); font-size: .8rem; line-height: 1.5; max-width: 48ch; }
+
+      .filters { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; margin-bottom: .55rem; }
+      .filter { display: grid; gap: .25rem; }
+      .filter span { color: var(--muted); font-size: .74rem; }
+      select {
+        font: inherit; font-size: .85rem; padding: .4rem 1.9rem .4rem .6rem; color: var(--ink);
+        background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2354655B' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right .45rem center / 14px;
+        border: 1px solid var(--line); border-radius: 9px; appearance: none; cursor: pointer;
+      }
+
+      #map-state { margin: .2rem 0 .7rem; color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
+
+      .provider-fields { display: grid; gap: .55rem; margin: -.2rem 0 .9rem; }
+      .provider-field { display: grid; gap: .25rem; }
+      .provider-field > span { color: var(--muted); font-size: .78rem; }
+
+      #cell-list { margin: 0; padding: 0; list-style: none; display: grid; gap: .3rem; }
+      #cell-list li {
+        display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .55rem;
+        padding: .55rem .7rem; border: 1px solid var(--line); border-radius: 11px;
+        background: #fff; font-size: .87rem;
+      }
+      #cell-list svg { width: 17px; height: 17px; color: var(--ink); }
+      #cell-list em { color: var(--ink); font-style: normal; font-weight: 800; font-size: .8rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+      #cell-list li { cursor: pointer; }
+      #cell-list li.pending { border-style: dashed; opacity: .82; }
+      #cell-list li.pending span { color: var(--muted); }
+
+      .locate {
+        margin-top: .7rem; width: 100%; padding: .6rem; font: inherit; font-size: .84rem; font-weight: 700;
+        color: var(--agua); background: #fff; border: 1px dashed var(--line); border-radius: 11px; cursor: pointer;
+      }
+      .locate:hover { border-color: var(--agua); background: #F1F8FC; }
+      .locate[data-busy] { color: var(--muted); cursor: progress; }
+
+      fieldset { margin: 0 0 .9rem; padding: 0; border: 0; }
+      legend { padding: 0; margin-bottom: .45rem; color: var(--muted); font-size: .78rem; }
+      .choices { display: flex; flex-wrap: wrap; gap: .4rem; }
+      .choices label {
+        display: inline-flex; align-items: center; gap: .45rem; padding: .45rem .75rem;
+        border: 1px solid var(--line); border-radius: 99px; background: #fff; font-size: .87rem; cursor: pointer;
+        transition: border-color .18s ease, background-color .18s ease;
+      }
+      .choices label:hover { border-color: var(--muted); }
+      .choices input { width: 1rem; height: 1rem; margin: 0; accent-color: var(--agua); flex: none; }
+      .choices label:has(input:checked) { border-color: var(--agua); background: #E8F4FB; }
+
+      #submit {
+        width: 100%; padding: .78rem; font: inherit; font-weight: 800; font-size: .95rem;
+        color: #fff; background: var(--ink); border: 0; border-radius: 12px; cursor: pointer;
+        transition: transform .18s cubic-bezier(.16, 1, .3, 1), background-color .18s ease;
+      }
+      #submit:hover { background: #0B120E; }
+      #submit:active { transform: scale(.985); }
+
+      #report-state { margin: .7rem 0 0; padding: .65rem .8rem; border-radius: 10px; border: 1px solid transparent; font-size: .85rem; line-height: 1.5; }
+      #report-state:empty { display: none; }
+      #report-state[data-tone='info'] { background: #E8F4FB; color: #0A6C9C; border-color: #B7E0F5; }
+      #report-state[data-tone='warn'] { background: #FEF6E7; color: #8A5A00; border-color: #F2DCB0; font-weight: 700; }
+      #report-state[data-tone='error'] { background: #FDECEC; color: #9A3412; border-color: #F3C5C5; font-weight: 700; }
+      #report-state[data-tone='success'] { background: #EAF6EC; color: #1A7A3A; border-color: #C2E7C8; font-weight: 700; }
+
+      @media (max-width: 55.99rem) {
+        .leaflet-bottom { bottom: 9.6rem; }
+      }
+
+      @media (min-width: 56rem) {
+        .rail {
+          top: 0; right: auto; bottom: 0; width: 25rem; max-height: none;
+          border-top: 0; border-right: 1px solid var(--line); border-radius: 0;
+          transform: none !important; box-shadow: 10px 0 34px rgb(22 32 26 / .14);
+        }
+        .grip { display: none; }
+        .answer { padding: 1.9rem 1.5rem .25rem; font-size: 1.1rem; }
+        .rail-body { padding: .6rem 1.5rem 2rem; }
+        .plate { left: 26.5rem; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .rail, #submit { transition: none; }
+        .me span { animation: none; }
+      }
+    </style>
   </body>
 </html>
-
-<style>
-  :root { color: #16271f; background: #f4f8f2; font-family: ui-sans-serif, system-ui, sans-serif; } body { margin: 0; } main { width: min(100% - 2rem, 68rem); margin: 0 auto; padding: 3rem 0 4rem; } header { max-width: 44rem; } .product-name { font-weight: 700; color: #176448; margin: 0 0 .5rem; } h1, h2 { letter-spacing: -.025em; margin: 0; } h1 { font-size: clamp(2rem, 6vw, 3.6rem); line-height: 1; } h2 { font-size: 1.35rem; } .intro { font-size: 1.1rem; line-height: 1.6; } .notice { border-block: 1px solid #a6c4b2; padding: 1rem 0; line-height: 1.5; } .map-panel, .report-panel { margin-top: 2rem; padding: 1.5rem; border-radius: .85rem; background: #fff; box-shadow: 0 12px 30px rgb(22 39 31 / .09); } .section-heading { display: flex; gap: 1rem; justify-content: space-between; align-items: start; } .section-heading p, .report-panel > div p { max-width: 48rem; line-height: 1.5; } label, fieldset { display: grid; gap: .5rem; } select, button { font: inherit; border-radius: .5rem; padding: .7rem .8rem; } select { border: 1px solid #6b8375; background: #fff; } button { margin-top: 1rem; border: 0; background: #176448; color: #fff; font-weight: 700; cursor: pointer; } button:hover { background: #0f5138; } button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid #da9a32; outline-offset: 3px; } fieldset { margin-top: 1rem; border: 1px solid #c8d6cc; border-radius: .5rem; } #map-state, #report-state { margin-top: 1rem; line-height: 1.5; } #report-state:not(:empty) { color: #9d2c20; font-weight: 600; } #cell-list { padding-left: 1.25rem; } @media (max-width: 38rem) { main { padding-top: 2rem; } .section-heading { display: grid; } }
-</style>

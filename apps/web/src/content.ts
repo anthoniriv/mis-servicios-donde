@@ -1,1 +1,1 @@
-export const siteNotice = 'Community-generated, unofficial outage information.';
+export const siteNotice = 'Información sobre cortes generada por la comunidad, no oficial.';

@@ -1,13 +1,17 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import pg from 'pg';
+
+import { configuredIntervalMs, type ScheduledWorker, startIntervalWorker } from '../workers/interval-worker.js';
+import { DatabasePool } from '../database/database.pool.js';
 
 type Service = 'water' | 'electricity' | 'internet';
 interface ClaimedIntent { id: string; content: string; attempts: number; leaseToken: string }
 
-const unofficialLabel = 'Community-generated, unofficial outage information.';
+const unofficialLabel = 'Información sobre cortes generada por la comunidad, no oficial.';
+const serviceLabels: Record<Service, string> = { water: 'agua', electricity: 'luz', internet: 'internet' };
 
 export function openingAlertContent(input: { service: Service; zoneName: string }): string {
-  return `${input.service.charAt(0).toUpperCase()}${input.service.slice(1)} outage in ${input.zoneName}. ${unofficialLabel}`;
+  return `Corte de ${serviceLabels[input.service]} en ${input.zoneName}. ${unofficialLabel}`;
 }
 
 export function retryDelaySeconds(attempts: number): number {
@@ -15,10 +19,8 @@ export function retryDelaySeconds(attempts: number): number {
 }
 
 @Injectable()
-export class AlertsService implements OnModuleDestroy {
-  private readonly pool = new pg.Pool({ connectionString: process.env.DATABASE_URL ?? 'postgresql://mis_servicios:mis_servicios@127.0.0.1:54329/mis_servicios_test' });
-
-  async onModuleDestroy(): Promise<void> { await this.pool.end(); }
+export class AlertsService {
+  constructor(private readonly database: DatabasePool) {}
 
   async queueOpening(client: pg.PoolClient, episodeId: string, zoneName: string, service: Service): Promise<void> {
     await client.query(
@@ -27,9 +29,16 @@ export class AlertsService implements OnModuleDestroy {
     );
   }
 
+  async cancelPendingForEpisode(client: pg.PoolClient, episodeId: string): Promise<void> {
+    await client.query(
+      `UPDATE "AlertIntent" SET "status" = 'cancelled', "cancelledAt" = CURRENT_TIMESTAMP, "leaseToken" = NULL, "leaseExpiresAt" = NULL WHERE "episodeId" = $1::uuid AND "status" IN ('pending', 'retryable')`,
+      [episodeId],
+    );
+  }
+
   async dispatchPending(): Promise<void> {
     if (process.env.ALERT_DISPATCH_ENABLED !== 'true') {
-      await this.pool.query(`UPDATE "AlertIntent" SET "status" = 'cancelled', "cancelledAt" = CURRENT_TIMESTAMP WHERE "status" IN ('pending', 'retryable')`);
+      await this.database.query(`UPDATE "AlertIntent" SET "status" = 'cancelled', "cancelledAt" = CURRENT_TIMESTAMP WHERE "status" IN ('pending', 'retryable')`);
       return;
     }
     for (const intent of await this.claimPending()) await this.deliver(intent);
@@ -37,7 +46,7 @@ export class AlertsService implements OnModuleDestroy {
 
   private async claimPending(): Promise<ClaimedIntent[]> {
     const leaseToken = crypto.randomUUID();
-    const result = await this.pool.query<ClaimedIntent>(
+    const result = await this.database.query<ClaimedIntent>(
       `WITH candidates AS (
         SELECT "id" FROM "AlertIntent" WHERE "status" IN ('pending', 'retryable') AND "nextAttemptAt" <= CURRENT_TIMESTAMP
           AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" < CURRENT_TIMESTAMP) ORDER BY "createdAt" FOR UPDATE SKIP LOCKED LIMIT 10
@@ -50,10 +59,10 @@ export class AlertsService implements OnModuleDestroy {
   private async deliver(intent: ClaimedIntent): Promise<void> {
     try {
       await this.sendTelegram(intent.content);
-      await this.pool.query(`UPDATE "AlertIntent" SET "status" = 'delivered', "deliveredAt" = CURRENT_TIMESTAMP, "leaseToken" = NULL, "leaseExpiresAt" = NULL WHERE "id" = $1::uuid AND "leaseToken" = $2`, [intent.id, intent.leaseToken]);
+      await this.database.query(`UPDATE "AlertIntent" SET "status" = 'delivered', "deliveredAt" = CURRENT_TIMESTAMP, "leaseToken" = NULL, "leaseExpiresAt" = NULL WHERE "id" = $1::uuid AND "leaseToken" = $2`, [intent.id, intent.leaseToken]);
     } catch {
       const attempts = intent.attempts + 1;
-      await this.pool.query(`UPDATE "AlertIntent" SET "status" = 'retryable', "attempts" = $3, "nextAttemptAt" = CURRENT_TIMESTAMP + ($4 * INTERVAL '1 second'), "leaseToken" = NULL, "leaseExpiresAt" = NULL WHERE "id" = $1::uuid AND "leaseToken" = $2`, [intent.id, intent.leaseToken, attempts, retryDelaySeconds(attempts)]);
+      await this.database.query(`UPDATE "AlertIntent" SET "status" = 'retryable', "attempts" = $3, "nextAttemptAt" = CURRENT_TIMESTAMP + ($4 * INTERVAL '1 second'), "leaseToken" = NULL, "leaseExpiresAt" = NULL WHERE "id" = $1::uuid AND "leaseToken" = $2`, [intent.id, intent.leaseToken, attempts, retryDelaySeconds(attempts)]);
     }
   }
 
@@ -64,4 +73,15 @@ export class AlertsService implements OnModuleDestroy {
     const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text: content }) });
     if (!response.ok) throw new Error('Telegram rejected the alert.');
   }
+}
+
+export const alertDispatchIntervalMs = configuredIntervalMs('ALERT_DISPATCH_INTERVAL_SECONDS', 30);
+
+/**
+ * Runs unconditionally: `dispatchPending` gates itself on ALERT_DISPATCH_ENABLED
+ * and its disabled branch is the documented rollback that cancels pending and
+ * retryable intents, so the worker must keep polling while dispatch is off.
+ */
+export function startAlertDispatchWorker(alerts: AlertsService): ScheduledWorker {
+  return startIntervalWorker(() => alerts.dispatchPending(), alertDispatchIntervalMs);
 }

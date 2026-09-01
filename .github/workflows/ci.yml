@@ -23,7 +23,7 @@ jobs:
         ports:
           - 54329:5432
     env:
-      DATABASE_URL: postgresql://mis_servicios:mis_servicios@127.0.0.1:54329/mis_servicios_test
+      TEST_DATABASE_URL: postgresql://mis_servicios:mis_servicios@127.0.0.1:54329/mis_servicios_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

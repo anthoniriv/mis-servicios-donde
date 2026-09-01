@@ -7,7 +7,7 @@ export class PublicCellsController {
   constructor(private readonly cells: PublicCellsService) {}
 
   @Get()
-  async list(@Query('service') service?: string): Promise<PublicCell[]> {
-    return this.cells.listCells(service);
+  async list(@Query('service') service?: string, @Query('provider') provider?: string): Promise<PublicCell[]> {
+    return this.cells.listCells(service, provider);
   }
 }

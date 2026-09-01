@@ -1,5 +1,8 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import pg from 'pg';
+
+import type { ScheduledWorker } from '../workers/interval-worker.js';
+import { DatabasePool } from '../database/database.pool.js';
 
 export interface RetentionResult {
   displayNames: number;
@@ -18,15 +21,11 @@ export interface PilotPurgeResult {
 }
 
 @Injectable()
-export class RetentionService implements OnModuleDestroy {
-  private readonly pool = new pg.Pool({ connectionString: process.env.DATABASE_URL ?? 'postgresql://mis_servicios:mis_servicios@127.0.0.1:54329/mis_servicios_test' });
-
-  async onModuleDestroy(): Promise<void> {
-    await this.pool.end();
-  }
+export class RetentionService {
+  constructor(private readonly database: DatabasePool) {}
 
   async cleanup(): Promise<RetentionResult> {
-    const client = await this.pool.connect();
+    const client = await this.database.connect();
     try {
       await client.query('BEGIN');
       const displayNames = await deleteExpired(client, 'ReportDisplayName');
@@ -45,7 +44,7 @@ export class RetentionService implements OnModuleDestroy {
   }
 
   async purgePilotData(): Promise<PilotPurgeResult> {
-    const client = await this.pool.connect();
+    const client = await this.database.connect();
     try {
       await client.query('BEGIN');
       const displayNames = await deleteAll(client, 'ReportDisplayName');
@@ -64,12 +63,86 @@ export class RetentionService implements OnModuleDestroy {
   }
 }
 
-export function startRetentionWorker(retention: RetentionService): NodeJS.Timeout {
-  const run = (): void => { void retention.cleanup().catch(() => undefined); };
-  run();
-  const timer = setInterval(run, 60 * 60 * 1000);
-  timer.unref();
-  return timer;
+export const retentionIntervalMs = 24 * 60 * 60 * 1000;
+
+const limaTimeZone = 'America/Lima';
+
+export function millisecondsUntilNextLimaMidnight(now: Date = new Date()): number {
+  if (Number.isNaN(now.getTime())) throw new RangeError('Cannot calculate retention schedule from an invalid date.');
+
+  const limaDate = dateParts(now);
+  const nextMidnightDate = Date.UTC(limaDate.year, limaDate.month - 1, limaDate.day + 1);
+  const offsetAtNextMidnight = timeZoneOffsetMs(new Date(nextMidnightDate + 12 * 60 * 60 * 1000), limaTimeZone);
+  const nextMidnight = nextMidnightDate - offsetAtNextMidnight;
+  return nextMidnight - now.getTime();
+}
+
+export function startRetentionWorker(retention: RetentionService, now: Date = new Date()): ScheduledWorker {
+  let stopped = false;
+  let timer: NodeJS.Timeout | undefined;
+
+  const schedule = (delayMs: number): void => {
+    timer = setTimeout(() => void cycle(), delayMs);
+    timer.unref();
+  };
+
+  const cycle = async (): Promise<void> => {
+    try {
+      await retention.cleanup();
+    } catch {
+      // Swallowed on purpose: the next daily run retries the cleanup.
+    }
+    if (!stopped) schedule(retentionIntervalMs);
+  };
+
+  schedule(millisecondsUntilNextLimaMidnight(now));
+
+  return {
+    stop: (): void => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    },
+  };
+}
+
+function dateParts(date: Date): { year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: limaTimeZone,
+    calendar: 'iso8601',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  return { year: numericPart(parts, 'year'), month: numericPart(parts, 'month'), day: numericPart(parts, 'day') };
+}
+
+function timeZoneOffsetMs(date: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    calendar: 'iso8601',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const asUtc = Date.UTC(
+    numericPart(parts, 'year'),
+    numericPart(parts, 'month') - 1,
+    numericPart(parts, 'day'),
+    numericPart(parts, 'hour'),
+    numericPart(parts, 'minute'),
+    numericPart(parts, 'second'),
+  );
+  return asUtc - date.getTime();
+}
+
+function numericPart(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes): number {
+  const value = parts.find((part) => part.type === type)?.value;
+  if (value === undefined) throw new Error(`Missing ${type} from Lima time-zone calculation.`);
+  return Number(value);
 }
 
 async function deleteExpired(client: pg.PoolClient, table: 'ReportDisplayName' | 'ReportEvent' | 'SubmissionRecord' | 'AbuseRecord'): Promise<number> {

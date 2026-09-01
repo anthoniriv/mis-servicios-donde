@@ -57,7 +57,7 @@ The system **MUST** limit a pseudonymous device to three submissions per rolling
 
 ### Requirement: Retention and restricted access
 
-Report events containing cell, status, and pseudonymous token **MUST** be deleted within seven days. Abuse, rate-limit, and idempotency records **MUST** be deleted within 30 days. Only non-linkable aggregates **MAY** be retained longer. Restricted data **MUST** be unavailable through public interfaces.
+Report events containing cell, status, and pseudonymous token **MUST** stop contributing to public state after 48 hours and **MUST** be deleted by the next scheduled midnight cleanup in America/Lima. Abuse, rate-limit, and idempotency records **MUST** be deleted within 30 days. Only non-linkable aggregates **MAY** be retained longer. Restricted data **MUST** be unavailable through public interfaces.
 
 #### Scenario: Retention deadlines
 

@@ -10,9 +10,11 @@ describe('consensus policy', () => {
   });
 
   it('restores only an active episode after a qualifying restored quorum', () => {
-    expect(shouldRestoreEpisode({ active: true, restoredVotesAfterOpening: 3 })).toBe(true);
-    expect(shouldRestoreEpisode({ active: true, restoredVotesAfterOpening: 2 })).toBe(false);
-    expect(shouldRestoreEpisode({ active: false, restoredVotesAfterOpening: 3 })).toBe(false);
+    expect(shouldRestoreEpisode({ active: true, restoredVotesAfterOpening: 3, activeOutageSignals: 3 })).toBe(true);
+    expect(shouldRestoreEpisode({ active: true, restoredVotesAfterOpening: 3, activeOutageSignals: 2 })).toBe(true);
+    expect(shouldRestoreEpisode({ active: true, restoredVotesAfterOpening: 3, activeOutageSignals: 4 })).toBe(false);
+    expect(shouldRestoreEpisode({ active: true, restoredVotesAfterOpening: 2, activeOutageSignals: 2 })).toBe(false);
+    expect(shouldRestoreEpisode({ active: false, restoredVotesAfterOpening: 3, activeOutageSignals: 3 })).toBe(false);
   });
 
   it('deduplicates and orders cell-service locks deterministically', () => {

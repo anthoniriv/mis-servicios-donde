@@ -11,8 +11,10 @@ export function isQuorumThresholdCrossing(previousVotes: number, currentVotes: n
   return previousVotes < quorumSize && currentVotes >= quorumSize;
 }
 
-export function shouldRestoreEpisode(input: { active: boolean; restoredVotesAfterOpening: number }): boolean {
-  return input.active && input.restoredVotesAfterOpening >= quorumSize;
+export function shouldRestoreEpisode(input: { active: boolean; restoredVotesAfterOpening: number; activeOutageSignals: number }): boolean {
+  return input.active
+    && input.restoredVotesAfterOpening >= quorumSize
+    && input.restoredVotesAfterOpening >= input.activeOutageSignals;
 }
 
 export function orderedLockKeys(entries: [string, string][]): string[] {

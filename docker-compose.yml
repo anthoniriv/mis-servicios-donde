@@ -2,15 +2,19 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: mis_servicios_test
+      POSTGRES_DB: mis_servicios
       POSTGRES_PASSWORD: mis_servicios
       POSTGRES_USER: mis_servicios
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mis_servicios -d mis_servicios_test"]
+      test: ["CMD-SHELL", "pg_isready -U mis_servicios -d mis_servicios"]
       interval: 2s
       timeout: 3s
       retries: 15
     ports:
       - "54329:5432"
-    tmpfs:
-      - /var/lib/postgresql/data
+    volumes:
+      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-data:

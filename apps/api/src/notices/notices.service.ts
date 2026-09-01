@@ -1,7 +1,20 @@
-import { Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common';
-import pg from 'pg';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { DatabasePool } from '../database/database.pool.js';
 
 interface ZoneRow { name: string }
+
+export interface ZoneBoundary {
+  minLatitude: number;
+  maxLatitude: number;
+  minLongitude: number;
+  maxLongitude: number;
+}
+
+export interface ZoneSummary {
+  slug: string;
+  name: string;
+  boundary: ZoneBoundary;
+}
 
 export interface PrintableNotice {
   title: string;
@@ -13,23 +26,29 @@ export interface PrintableNotice {
 
 export function printableNotice(input: { name: string }): PrintableNotice {
   return {
-    title: `${input.name} community outage notice`,
+    title: `Aviso comunitario de cortes — ${input.name}`,
     zone: input.name,
-    instructions: 'Report water, electricity, or internet outages on the community map.',
+    instructions: 'Reporta cortes de agua, luz o internet en el mapa comunitario.',
     mapUrl: '/',
-    notice: 'Community-generated, unofficial outage information.',
+    notice: 'Información sobre cortes generada por la comunidad, no oficial.',
   };
 }
 
 @Injectable()
-export class NoticesService implements OnModuleDestroy {
-  private readonly pool = new pg.Pool({ connectionString: process.env.DATABASE_URL ?? 'postgresql://mis_servicios:mis_servicios@127.0.0.1:54329/mis_servicios_test' });
-
-  async onModuleDestroy(): Promise<void> { await this.pool.end(); }
+export class NoticesService {
+  constructor(private readonly database: DatabasePool) {}
 
   async forApprovedZone(slug: string): Promise<PrintableNotice> {
-    const zone = await this.pool.query<ZoneRow>('SELECT "name" FROM "PilotZone" WHERE "slug" = $1 AND "approved" = true', [slug]);
+    const zone = await this.database.query<ZoneRow>('SELECT "name" FROM "PilotZone" WHERE "slug" = $1 AND "approved" = true', [slug]);
     if (!zone.rows[0]) throw new NotFoundException();
     return printableNotice(zone.rows[0]);
+  }
+
+  /** The approved districts, with their bounds, so the map can centre on one. */
+  async listApprovedZones(): Promise<ZoneSummary[]> {
+    const zones = await this.database.query<{ slug: string; name: string; boundary: ZoneBoundary }>(
+      'SELECT "slug", "name", "boundary" FROM "PilotZone" WHERE "approved" = true ORDER BY "slug"',
+    );
+    return zones.rows;
   }
 }

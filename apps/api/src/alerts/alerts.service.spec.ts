@@ -6,9 +6,9 @@ describe('alert delivery policy', () => {
   it('renders an opening alert with only aggregate community data', () => {
     const content = openingAlertContent({ service: 'water', zoneName: 'Central' });
 
-    expect(content).toContain('Water outage');
+    expect(content).toContain('Corte de agua');
     expect(content).toContain('Central');
-    expect(content).toContain('Community-generated, unofficial outage information.');
+    expect(content).toContain('Información sobre cortes generada por la comunidad, no oficial.');
     expect(content).not.toMatch(/ana|device|token|latitude|longitude|timestamp/i);
   });
 

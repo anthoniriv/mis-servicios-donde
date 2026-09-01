@@ -10,7 +10,8 @@ import { AppModule } from '../src/app.module.js';
 import { AlertsService } from '../src/alerts/alerts.service.js';
 import { ConsensusService } from '../src/consensus/consensus.service.js';
 
-const databaseUrl = process.env.DATABASE_URL ??
+/** Never DATABASE_URL: these specs drop the schema, and development data must survive them. */
+const databaseUrl = process.env.TEST_DATABASE_URL ??
   'postgresql://mis_servicios:mis_servicios@127.0.0.1:54329/mis_servicios_test';
 
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
@@ -22,7 +23,9 @@ describe('executable API foundation', () => {
   let alerts: AlertsService;
 
   beforeAll(async () => {
+    process.env.DATABASE_URL = databaseUrl;
     process.env.INTAKE_ENABLED = 'true';
+    process.env.DEVICE_TOKEN_SECRET = 'test-device-secret';
     process.env.H3_RESOLUTION = '9';
     database = new pg.Pool({ connectionString: databaseUrl });
     await database.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public');
@@ -65,6 +68,7 @@ describe('executable API foundation', () => {
     submissionId: 'submission-001',
     deviceId: 'device-001',
     services: ['water', 'electricity', 'internet'],
+    providers: { water: 'sedapal', electricity: 'luz_del_sur', internet: 'win' },
     status: 'outage',
     latitude: -12.0464,
     longitude: -77.0428,
@@ -107,7 +111,7 @@ describe('executable API foundation', () => {
 
     await request(app.getHttpServer())
       .post('/v1/reports')
-      .send({ ...report, services: ['water'], status: 'restored' })
+      .send({ ...report, services: ['water'], providers: { water: 'sedapal' }, status: 'restored' })
       .expect(409)
       .expect({ code: 'submission_conflict', message: 'Submission identifier conflicts with prior input.' });
 
@@ -128,7 +132,7 @@ describe('executable API foundation', () => {
 
     await request(app.getHttpServer())
       .post('/v1/reports')
-      .send({ ...report, submissionId: 'atomic-001', services: ['water', 'internet'] })
+      .send({ ...report, deviceId: 'atomic-device', submissionId: 'atomic-001', services: ['water', 'internet'], providers: { water: 'sedapal', internet: 'win' } })
       .expect(500)
       .expect({ code: 'report_unavailable', message: 'Unable to process report.' });
 
@@ -138,15 +142,28 @@ describe('executable API foundation', () => {
 
   it('serves only a safe printable notice for an approved pilot zone', async () => {
     await request(app.getHttpServer()).get('/v1/zones/central/notice').expect(200).expect({
-      title: 'Central community outage notice',
+      title: 'Aviso comunitario de cortes — Central',
       zone: 'Central',
-      instructions: 'Report water, electricity, or internet outages on the community map.',
+      instructions: 'Reporta cortes de agua, luz o internet en el mapa comunitario.',
       mapUrl: '/',
-      notice: 'Community-generated, unofficial outage information.',
+      notice: 'Información sobre cortes generada por la comunidad, no oficial.',
     });
     await request(app.getHttpServer()).get('/v1/zones/missing/notice').expect(404);
     await database.query('UPDATE "PilotZone" SET "approved" = false WHERE "slug" = \'central\'');
     await request(app.getHttpServer()).get('/v1/zones/central/notice').expect(404);
+    await database.query('UPDATE "PilotZone" SET "approved" = true WHERE "slug" = \'central\'');
+  });
+
+  it('lists only approved districts with their bounds for the map to centre on', async () => {
+    const zones = await request(app.getHttpServer()).get('/v1/zones').expect(200);
+    expect(zones.body).toEqual([{
+      slug: 'central',
+      name: 'Central',
+      boundary: { minLatitude: -12.1, maxLatitude: -12.0, minLongitude: -77.1, maxLongitude: -77.0 },
+    }]);
+
+    await database.query('UPDATE "PilotZone" SET "approved" = false WHERE "slug" = \'central\'');
+    await request(app.getHttpServer()).get('/v1/zones').expect(200).expect([]);
     await database.query('UPDATE "PilotZone" SET "approved" = true WHERE "slug" = \'central\'');
   });
 
@@ -155,12 +172,13 @@ describe('executable API foundation', () => {
 describe('outage consensus', () => {
   const report = {
     services: ['water'],
+    providers: { water: 'sedapal' },
     status: 'outage',
     latitude: -12.0464,
     longitude: -77.0428,
   };
 
-  async function submit(device: string, submission: string, changes: Partial<typeof report> = {}): Promise<void> {
+  async function submit(device: string, submission: string, changes: Record<string, unknown> = {}): Promise<void> {
     await request(app.getHttpServer())
       .post('/v1/reports')
       .send({ ...report, ...changes, deviceId: device, submissionId: submission })
@@ -182,9 +200,9 @@ describe('outage consensus', () => {
 
   it('keeps cell, service, and status quorums isolated', async () => {
     await Promise.all([
-      submit('electric-a', 'electric-a', { services: ['electricity'] }),
-      submit('electric-b', 'electric-b', { services: ['electricity'] }),
-      submit('electric-c', 'electric-c', { services: ['electricity'] }),
+      submit('electric-a', 'electric-a', { services: ['electricity'], providers: { electricity: 'luz_del_sur' } }),
+      submit('electric-b', 'electric-b', { services: ['electricity'], providers: { electricity: 'luz_del_sur' } }),
+      submit('electric-c', 'electric-c', { services: ['electricity'], providers: { electricity: 'luz_del_sur' } }),
       submit('restored-a', 'restored-a', { status: 'restored' }),
       submit('restored-b', 'restored-b', { status: 'restored' }),
       submit('restored-c', 'restored-c', { status: 'restored' }),
@@ -204,20 +222,20 @@ describe('outage consensus', () => {
 
   it('refreshes only after a later quorum and closes stale episodes without publishing them', async () => {
     const initial = await database.query<{ expiresAt: Date }>('SELECT "expiresAt" FROM "OutageEpisode" WHERE "service" = \'electricity\' AND "active" = true');
-    await submit('electric-lone', 'electric-lone', { services: ['electricity'] });
+    await submit('electric-lone', 'electric-lone', { services: ['electricity'], providers: { electricity: 'luz_del_sur' } });
     expect((await database.query<{ expiresAt: Date }>('SELECT "expiresAt" FROM "OutageEpisode" WHERE "service" = \'electricity\' AND "active" = true')).rows[0]?.expiresAt)
       .toEqual(initial.rows[0]?.expiresAt);
 
     await database.query('ALTER TABLE "ReportEvent" DISABLE TRIGGER prevent_report_event_mutation');
     await database.query('UPDATE "ReportEvent" SET "createdAt" = CURRENT_TIMESTAMP - INTERVAL \'61 minutes\' WHERE "service" = \'electricity\' AND "status" = \'outage\'');
     await database.query('ALTER TABLE "ReportEvent" ENABLE TRIGGER prevent_report_event_mutation');
-    await Promise.all(['refresh-a', 'refresh-b', 'refresh-c'].map((id) => submit(id, id, { services: ['electricity'] })));
+    await Promise.all(['refresh-a', 'refresh-b', 'refresh-c'].map((id) => submit(id, id, { services: ['electricity'], providers: { electricity: 'luz_del_sur' } })));
     const refreshed = await database.query<{ expiresAt: Date }>('SELECT "expiresAt" FROM "OutageEpisode" WHERE "service" = \'electricity\' AND "active" = true');
     expect(refreshed.rows[0]?.expiresAt.getTime()).toBeGreaterThan(initial.rows[0]?.expiresAt.getTime() ?? 0);
 
     const stale = await database.query<{ id: string; h3Cell: string }>('SELECT "id", "h3Cell" FROM "OutageEpisode" WHERE "service" = \'electricity\' AND "active" = true');
     await database.query('UPDATE "OutageEpisode" SET "expiresAt" = CURRENT_TIMESTAMP - INTERVAL \'1 second\' WHERE "id" = $1', [stale.rows[0]?.id]);
-    expect(await consensus.listPublicEpisodes()).not.toContainEqual({ h3Cell: stale.rows[0]?.h3Cell, service: 'electricity' });
+    expect(await consensus.listPublicEpisodes()).not.toContainEqual({ h3Cell: stale.rows[0]?.h3Cell, service: 'electricity', provider: 'luz_del_sur' });
     await consensus.expireStaleEpisodes();
     expect((await database.query<{ active: boolean; closureReason: string }>('SELECT "active", "closureReason" FROM "OutageEpisode" WHERE "id" = $1', [stale.rows[0]?.id])).rows[0])
       .toEqual({ active: false, closureReason: 'expired' });
@@ -238,7 +256,7 @@ describe('outage consensus', () => {
     expect(typeof publicCells[0]?.h3Cell).toBe('string');
     expect(publicCells[0]?.service).toBe('water');
     expect(JSON.stringify(publicCells)).not.toMatch(/device|name|created|timestamp|latitude|longitude/i);
-    await request(app.getHttpServer()).get('/v1/cells?service=internet').expect(200).expect([]);
+    await request(app.getHttpServer()).get('/v1/cells?service=internet').expect(200).expect([{ h3Cell: '898e62c0cdbffff', service: 'internet', provider: 'win', confirmed: false, reports: 1 }]);
     await request(app.getHttpServer()).get('/v1/cells?service=unknown').expect(200).expect([]);
 
     await database.query('UPDATE "PilotZone" SET "approved" = false WHERE "slug" = \'central\'');
@@ -254,14 +272,14 @@ describe('outage consensus', () => {
 
   it('keeps one safe opening intent recoverable across concurrency, provider failure, and dispatch rollback', async () => {
     await database.query('DROP TRIGGER fail_internet_event ON "ReportEvent"');
-    await Promise.all(['alert-a', 'alert-b', 'alert-c'].map((id) => submit(id, id, { services: ['internet'] })));
+    await Promise.all(['alert-a', 'alert-b', 'alert-c'].map((id) => submit(id, id, { services: ['internet'], providers: { internet: 'win' } })));
 
     const intents = await database.query<{ count: string; content: string }>(
       `SELECT count(*), min(intent."content") AS "content" FROM "AlertIntent" intent JOIN "OutageEpisode" episode ON episode."id" = intent."episodeId" WHERE intent."kind" = 'OPENED' AND episode."service" = 'internet'`,
     );
     expect(intents.rows[0]?.count).toBe('1');
-    expect(intents.rows[0]?.content).toContain('Internet outage');
-    expect(intents.rows[0]?.content).toContain('Community-generated, unofficial outage information.');
+    expect(intents.rows[0]?.content).toContain('Corte de internet');
+    expect(intents.rows[0]?.content).toContain('Información sobre cortes generada por la comunidad, no oficial.');
     expect(intents.rows[0]?.content).not.toMatch(/device|latitude|longitude|alert-a/i);
 
     process.env.ALERT_DISPATCH_ENABLED = 'true';

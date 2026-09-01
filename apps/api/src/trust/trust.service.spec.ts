@@ -6,7 +6,6 @@ import {
   createVersionedDeviceToken,
   sanitizeDisplayName,
   toPublicTrustOutcome,
-  toSafeError,
 } from './trust.service.js';
 
 describe('trust controls', () => {
@@ -38,14 +37,4 @@ describe('trust controls', () => {
     expect(toPublicTrustOutcome(result)).toEqual({ accepted: true });
   });
 
-  it('does not expose raw coordinates, device identifiers, or internal decisions in safe errors', () => {
-    const safeError = toSafeError({
-      deviceId: 'device-1',
-      latitude: -12.0464,
-      longitude: -77.0428,
-      internalReason: 'rate_limit',
-    });
-    expect(safeError).toEqual({ code: 'report_unavailable', message: 'Unable to process report.' });
-    expect(JSON.stringify(safeError)).not.toContain('device-1');
-  });
 });

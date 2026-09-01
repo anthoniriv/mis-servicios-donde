@@ -1,24 +1,24 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.js';
 
 test('serves the static public foundation', async ({ request }) => {
   const response = await request.get('/');
   expect(response.ok()).toBe(true);
-  await expect(response.text()).resolves.toContain('Community-generated, unofficial outage information.');
+  await expect(response.text()).resolves.toContain('Información sobre cortes generada por la comunidad, no oficial.');
 });
 
 test('offers an unofficial filtered map and accessible report validation', async ({ page }) => {
-  await page.route('**/v1/cells?service=water', (route) => route.fulfill({ json: [{ h3Cell: '8999999999fffff', service: 'water' }] }));
+  await page.route('**/v1/cells?service=water', (route) => route.fulfill({ json: [{ h3Cell: '8999999999fffff', service: 'water', provider: 'sedapal', confirmed: true, reports: 3 }] }));
   await page.goto('/');
 
-  await expect(page.getByRole('heading', { name: 'Community outage map' })).toBeVisible();
-  await expect(page.getByRole('note')).toContainText('Community-generated information is unofficial and not provider-confirmed.');
-  await expect(page.getByLabel('Show service')).toHaveValue('all');
-  await expect(page.getByRole('status')).toContainText('No confirmed outages are available right now.');
+  await expect(page.getByRole('heading', { name: '¿Es solo tu casa?' })).toBeVisible();
+  await expect(page.getByRole('note')).toContainText('No es un canal oficial de Sedapal, Luz del Sur ni de ningún proveedor.');
+  await expect(page.getByLabel('Ver servicio')).toHaveValue('all');
+  await expect(page.getByRole('status')).toContainText('No hay cortes reportados en este momento.');
 
-  await page.getByLabel('Show service').selectOption('water');
-  await expect(page.getByRole('status')).toContainText('1 confirmed condition available.');
-  await expect(page.getByLabel('Confirmed outage cells')).toContainText('water condition in a nearby area');
+  await page.getByLabel('Ver servicio').selectOption('water');
+  await expect(page.getByRole('status')).toContainText('1 confirmado.');
+  await expect(page.getByLabel('Cortes confirmados por zona')).toContainText('Corte de agua en una zona cercana');
 
-  await page.getByRole('button', { name: 'Send report' }).click();
-  await expect(page.getByRole('alert')).toContainText('Choose at least one affected service.');
+  await page.getByRole('button', { name: 'Enviar reporte' }).click();
+  await expect(page.getByRole('alert')).toContainText('Elige al menos un servicio afectado.');
 });
