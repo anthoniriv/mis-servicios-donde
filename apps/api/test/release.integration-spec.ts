@@ -135,13 +135,14 @@ describe('remediation verification coverage', () => {
 
   it('keeps public operation disabled without a configured resolution or approved pilot set', async () => {
     const zone = await database.query<{ id: string }>('SELECT "id" FROM "PilotZone" WHERE "slug" = $1', ['central']);
-    await database.query(`INSERT INTO "OutageEpisode" ("zoneId", "h3Cell", "service", "expiresAt") VALUES ($1, '898e62c0cdbffff', 'water', CURRENT_TIMESTAMP + INTERVAL '6 hours')`, [zone.rows[0]?.id]);
+    await database.query(`INSERT INTO "OutageEpisode" ("zoneId", "h3Cell", "service", "provider", "expiresAt") VALUES ($1, '898e62c0cdbffff', 'water', 'sedapal', CURRENT_TIMESTAMP + INTERVAL '6 hours')`, [zone.rows[0]?.id]);
     delete process.env.H3_RESOLUTION;
     await request(app.getHttpServer()).get('/v1/cells?service=water').expect(200).expect([]);
     process.env.H3_RESOLUTION = '9';
     await database.query('UPDATE "PilotZone" SET "approved" = false WHERE "slug" = $1', ['north']);
     await request(app.getHttpServer()).get('/v1/cells?service=water').expect(200).expect([]);
     await database.query('UPDATE "PilotZone" SET "approved" = true WHERE "slug" = $1', ['north']);
+    await database.query(`UPDATE "OutageEpisode" SET "active" = false, "closedAt" = CURRENT_TIMESTAMP, "closureReason" = 'expired'::"EpisodeClosureReason" WHERE "h3Cell" = '898e62c0cdbffff' AND "service" = 'water' AND "provider" = 'sedapal' AND "active" = true`);
   });
 
   it('accepts an unsafe optional name without retaining it and keeps raw request data out of errors', async () => {
