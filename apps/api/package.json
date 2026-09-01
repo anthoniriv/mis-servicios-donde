@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "nest build",
+    "build": "nest build && node scripts/copy-migrations.mjs",
     "start": "node --env-file-if-exists=../../.env dist/main.js",
     "start:dev": "nest start --watch",
     "typecheck": "tsc --noEmit",

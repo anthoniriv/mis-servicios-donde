@@ -9,10 +9,19 @@ const migrationTable = '"_MisServiciosMigration"';
 
 interface MigrationFile {
   id: string;
-  path: string;
   sql: string;
   checksum: string;
 }
+
+const expectedTables = [
+  'PilotZone',
+  'SubmissionRecord',
+  'ReportEvent',
+  'ReportDisplayName',
+  'AbuseRecord',
+  'OutageEpisode',
+  'AlertIntent',
+];
 
 async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL?.trim();
@@ -30,6 +39,21 @@ async function main(): Promise<void> {
 
     const applied = await client.query<{ id: string; checksum: string }>(`SELECT "id", "checksum" FROM ${migrationTable}`);
     const appliedById = new Map(applied.rows.map((row) => [row.id, row.checksum]));
+
+    if (appliedById.size === 0 && await hasCurrentSchema(client)) {
+      await client.query('BEGIN');
+      try {
+        for (const migration of migrations) {
+          await client.query(`INSERT INTO ${migrationTable} ("id", "checksum") VALUES ($1, $2)`, [migration.id, migration.checksum]);
+        }
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      }
+      console.log(`Existing schema detected; baselined ${migrations.length} migrations.`);
+      return;
+    }
 
     for (const migration of migrations) {
       const previousChecksum = appliedById.get(migration.id);
@@ -69,17 +93,40 @@ async function loadMigrations(): Promise<MigrationFile[]> {
     .filter((entry) => entry.isDirectory() && /^\d+_[a-z0-9-]+$/.test(entry.name))
     .sort((left, right) => left.name.localeCompare(right.name));
 
+  if (directories.length === 0) {
+    throw new Error(`No SQL migrations found in ${migrationsRoot}.`);
+  }
+
   return Promise.all(directories.map(async (directory) => {
     const id = directory.name;
     const path = join(migrationsRoot, id, 'migration.sql');
     const sql = await readFile(path, 'utf8');
-    return { id, path, sql, checksum: createHash('sha256').update(sql).digest('hex') };
+    return { id, sql, checksum: createHash('sha256').update(sql).digest('hex') };
   }));
+}
+
+async function hasCurrentSchema(client: pg.PoolClient): Promise<boolean> {
+  const tables = await client.query<{ table_name: string }>(
+    `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ANY($1::text[])`,
+    [expectedTables],
+  );
+  if (tables.rowCount !== expectedTables.length) return false;
+
+  const columns = await client.query<{ table_name: string; column_name: string }>(
+    `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public' AND ((table_name = 'ReportEvent' AND column_name = 'provider') OR (table_name = 'OutageEpisode' AND column_name = 'provider'))`,
+  );
+  if (columns.rowCount !== 2) return false;
+
+  const trigger = await client.query<{ exists: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'prevent_report_event_mutation' AND NOT tgisinternal)`,
+  );
+  return trigger.rows[0]?.exists === true;
 }
 
 async function findMigrationsRoot(): Promise<string> {
   const compiledFileDirectory = dirname(fileURLToPath(import.meta.url));
   const candidates = [
+    resolve(compiledFileDirectory, '../prisma/migrations'),
     resolve(process.cwd(), 'apps/api/prisma/migrations'),
     resolve(process.cwd(), 'prisma/migrations'),
     resolve(compiledFileDirectory, '../../prisma/migrations'),
