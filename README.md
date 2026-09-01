@@ -40,13 +40,13 @@ The integration suite resets the local test schema and applies every committed S
 
 ## Development data
 
-The pilot only works with real data in place, and a half-seeded database is indistinguishable from a broken one: intake refuses every report when no approved zone contains the coordinates, and the public map publishes nothing unless exactly two or three zones are approved.
+The pilot only works with real data in place, and a half-seeded database is indistinguishable from a broken one: intake refuses every report when no approved zone contains the coordinates, and the public map publishes nothing unless at least two zones are approved.
 
 ```sh
 npm run db:seed --workspace @mis-servicios/api
 ```
 
-The seed applies migrations when the schema is absent, then upserts three approved Lima zones (Breña, Cercado de Lima, Jesús María) with real bounding boxes. It refuses to run against a database whose name ends in `_test`.
+The seed applies migrations when the schema is absent, then upserts ten approved Lima districts: Breña, Cercado de Lima, Jesús María, Lince, Magdalena del Mar, Rímac, San Borja, San Isidro, San Juan de Lurigancho, and San Martín de Porres. It refuses to run against a database whose name ends in `_test`.
 
 **The integration suite drops and recreates its schema on every run.** It reads `TEST_DATABASE_URL` and never falls back to `DATABASE_URL`, so a test run cannot reach development data no matter what the shell exports.
 
@@ -79,7 +79,7 @@ Do not commit `.env` or secret values. Supply values through the process environ
 | `TELEGRAM_BOT_TOKEN` | alert dispatch | Telegram bot credential. |
 | `TELEGRAM_CHAT_ID` | alert dispatch | Destination channel or chat identifier. |
 
-Zone approval comes from `PilotZone` rows in PostgreSQL, never from configuration. Every approved zone must carry an explicit bounding-box `boundary`; a zone without one matches no report.
+Zone approval comes from `PilotZone` rows in PostgreSQL, never from configuration. The development seed is only a reproducible source for those rows. Every approved zone must carry an explicit bounding-box `boundary`; a zone without one matches no report. Bounding boxes are intentionally coarse operational coverage, not administrative polygons: the first-wave boxes have 18 positive-area intersections between neighbouring districts, so they must not be used to make precise district-attribution claims. Replace them with validated polygons before relying on border-level classification.
 
 ## Gates and workers
 
