@@ -1,8 +1,47 @@
-# Community outage pilot operations
+# Mis Servicios
 
-This repository verifies a privacy-first, community-generated outage pilot for water, electricity, and internet. It is **unofficial** data: publish only approved pilot zones, never claim provider confirmation, and never treat the alert path as exactly-once delivery.
+**Mis Servicios** is a privacy-first pilot for community-reported outages of water, electricity, and internet. It helps neighbours see whether a disruption is affecting an approved pilot zone—without presenting community reports as provider-confirmed information.
 
-## Quick path
+> **Unofficial data.** Publish only approved pilot zones, never imply provider confirmation, and never promise exactly-once alert delivery.
+
+## Product value
+
+An isolated report is hard to interpret. The pilot groups short-lived, pseudonymous reports by H3 cell and service so that the public map can reveal corroborated local patterns while keeping exact locations, device tokens, names, and report timestamps out of the published data.
+
+## Main capabilities
+
+- Community intake for water, electricity, and internet disruptions.
+- Public map that only exposes approved pilot zones and aggregate H3 cells.
+- Corroboration flow that distinguishes pending reports from confirmed outage episodes.
+- Optional Telegram alert dispatch through a durable outbox with bounded retries.
+- Privacy and retention workers for expiry and deletion.
+- Product gates that independently control intake, public publication, alerting, and retention.
+
+## User flow
+
+1. A resident submits an outage report while intake is enabled and their location falls inside an approved pilot zone.
+2. The API derives an H3 cell; it does not persist or publish the precise coordinates.
+3. Corroborating reports can form an outage episode.
+4. The browser map shows permitted aggregate cells, and the alert worker may notify Telegram when dispatch is enabled.
+
+## Architecture and stack
+
+| Layer | Technology | Responsibility |
+|---|---|---|
+| Web | Astro + Leaflet | Map and browser reporting experience |
+| API | NestJS | Intake, publication, trust, notices, and workers |
+| Contracts | TypeScript + Zod | Shared domain contracts |
+| Data | PostgreSQL 17 + H3 | Pilot zones, aggregate cells, and operational records |
+| Quality | Vitest + Playwright | Unit, integration, and browser verification |
+
+```text
+apps/api/           NestJS API, migrations, workers, seed, integration tests
+apps/web/           Astro public-map client
+packages/contracts/ shared types and validation schemas
+docker/              local PostgreSQL initialization
+```
+
+## Quick start
 
 1. Use Node.js 22 or later and install locked dependencies:
 
