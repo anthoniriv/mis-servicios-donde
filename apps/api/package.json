@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "db:migrate:deploy": "node --env-file-if-exists=../../.env dist/database/migrate.js",
     "retention:purge": "node --env-file-if-exists=../../.env dist/retention/purge.js",
     "db:seed": "node --env-file-if-exists=../../.env dist/dev/seed.js"
   },
